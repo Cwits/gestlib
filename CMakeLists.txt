@@ -13,7 +13,7 @@ endif()
 
 message("Building ${CMAKE_BUILD_TYPE} version")
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+#include_directories(${PROJECT_SOURCE_DIR}/include)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBEVDEV REQUIRED libevdev)
@@ -24,7 +24,7 @@ set(SOURCES src/TouchDriver.cpp
             src/OneFingerFSM.cpp)
 
 add_library(GestLib STATIC ${SOURCES})
-target_include_directories(GestLib PUBLIC ${LIBEVDEV_INCLUDE_DIRS})
+target_include_directories(GestLib PUBLIC ${PROJECT_SOURCE_DIR}/include ${LIBEVDEV_INCLUDE_DIRS})
 target_link_libraries(GestLib ${LIBEVDEV_LIBRARIES})
 
 add_executable(example examples/main.cpp)

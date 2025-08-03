@@ -161,4 +161,17 @@ struct Gesture {
     };
 };
 
+//TODO: without inline won't compile
+inline Gestures getType(Gesture & gest) {
+    Gestures type;
+    if(gest.type == GestureType::Tap) type = Gestures::Tap;
+    else if(gest.type == GestureType::Hold) type = Gestures::Hold;
+    else if(gest.type == GestureType::DoubleTap) type = Gestures::DoubleTap;
+    else if(gest.type >= GestureType::SwipeStart && gest.type <= GestureType::SwipeEnd) type = Gestures::Swipe;
+    else if(gest.type >= GestureType::DragStart && gest.type <= GestureType::DragEnd) type = Gestures::Drag;
+    else if(gest.type >= GestureType::DTSwipeStart && gest.type <= GestureType::DTSwipeEnd) type = Gestures::DoubleTapSwipe;
+    else if(gest.type >= GestureType::DTCircularStart && gest.type <= GestureType::DTCircularEnd) type = Gestures::DoubleTapCircular;
+    return type;
+}
+
 }

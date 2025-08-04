@@ -5,6 +5,8 @@ namespace GestLib {
 
 enum class Gestures {
     // Stroke,         //+
+    TouchDown,
+    TouchUp,
     //one finger
     Tap,            //+
     Hold,           //+
@@ -23,24 +25,10 @@ enum class Gestures {
     ThreeFingerSwipe
 };
 
-enum class GestureType {
-    TouchDown,
-    TouchUp,
-    Tap,
-    Hold,
-    DoubleTap,
-    SwipeStart,
-    SwipeMove,
-    SwipeEnd,
-    DragStart,
-    DragMove,
-    DragEnd,
-    DTSwipeStart,
-    DTSwipeMove,
-    DTSwipeEnd,
-    DTCircularStart,
-    DTCircularMove,
-    DTCircularEnd
+enum class GestureState {
+    Start,
+    Move,
+    End
 };
 
 struct TapGesture {
@@ -58,74 +46,40 @@ struct DoubleTapGesture {
     int y;
 };
 
-struct SwipeStartGesture {
+struct SwipeGesture {
+    GestureState state;
     int x;
     int y;
-};
-
-struct SwipeMoveGesture {
     int dx;
     int dy;
-    int x;
-    int y;
 };
 
-struct SwipeEndGesture {
+struct DragGesture {
+    GestureState state;
     int x;
     int y;
-};
-
-struct DragStartGesture {
-    int x;
-    int y;
-};
-
-struct DragMoveGesture {
     int dx;
     int dy;
-    int x;
-    int y;
 };
 
-struct DragEndGesture {
+struct DTSwipeGesture {
+    GestureState state;
     int x;
     int y;
-};
-
-struct DTSwipeStartGesture {
-    int x;
-    int y;
-};
-
-struct DTSwipeMoveGesture {
-    int dx; 
+    int dx;
     int dy;
-    int x;
-    int y;
 };
 
-struct DTSwipeEndGesture {
+struct DTCircularGesture {
+    GestureState state;
     int x;
     int y;
-};
-
-struct DTCircularStartGesture {
-    int x;
-    int y;
-};
-
-struct DTCircularMoveGesture {
-    float angle; 
-    float deltaAngle; 
-    float radius; 
-    float speed; 
-    int x;
-    int y;
-};
-
-struct DTCircularEndGesture {
-    int x;
-    int y;
+    int dx;
+    int dy;
+    float angle;
+    float deltaAngle;
+    float radius;
+    float speed;
 };
 
 struct TouchDownEvent {
@@ -139,39 +93,18 @@ struct TouchUpEvent {
 };
 
 struct Gesture {
-    GestureType type;
+    Gestures type;
     union {
         TouchDownEvent touchDown;
         TouchUpEvent touchUp;
         TapGesture tap;
         HoldGesture hold;
         DoubleTapGesture doubleTap;
-        SwipeStartGesture swipeStart;
-        SwipeMoveGesture swipeMove;
-        SwipeEndGesture swipeEnd;
-        DragStartGesture dragStart;
-        DragMoveGesture dragMove;
-        DragEndGesture dragEnd;
-        DTSwipeStartGesture dtSwipeStart;
-        DTSwipeMoveGesture dtSwipeMove;
-        DTSwipeEndGesture dtSwipeEnd;
-        DTCircularStartGesture dtCircularStart;
-        DTCircularMoveGesture dtCircularMove;
-        DTCircularEndGesture dtCircularEnd;
+        SwipeGesture swipe;
+        DragGesture drag;
+        DTSwipeGesture dtSwipe;
+        DTCircularGesture dtCircular;
     };
 };
-
-//TODO: without inline won't compile
-inline Gestures getType(Gesture & gest) {
-    Gestures type;
-    if(gest.type == GestureType::Tap) type = Gestures::Tap;
-    else if(gest.type == GestureType::Hold) type = Gestures::Hold;
-    else if(gest.type == GestureType::DoubleTap) type = Gestures::DoubleTap;
-    else if(gest.type >= GestureType::SwipeStart && gest.type <= GestureType::SwipeEnd) type = Gestures::Swipe;
-    else if(gest.type >= GestureType::DragStart && gest.type <= GestureType::DragEnd) type = Gestures::Drag;
-    else if(gest.type >= GestureType::DTSwipeStart && gest.type <= GestureType::DTSwipeEnd) type = Gestures::DoubleTapSwipe;
-    else if(gest.type >= GestureType::DTCircularStart && gest.type <= GestureType::DTCircularEnd) type = Gestures::DoubleTapCircular;
-    return type;
-}
 
 }

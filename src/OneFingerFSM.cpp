@@ -117,7 +117,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
             _holdTimer.start(800, now);
             _state = Stroke;
             Gesture t;
-            t.type = GestureType::TouchDown;
+            t.type = Gestures::TouchDown;
             t.touchDown = {
                 .x = resLerp(event.x, _resolutionX, _expectedX),
                 .y = resLerp(event.y, _resolutionY, _expectedY)
@@ -136,10 +136,13 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                         float dist = distance(event, _startEvent);
                         if(dist >= 10) {
                             Gesture swipe;
-                            swipe.type = GestureType::SwipeStart;
-                            swipe.swipeStart = {
+                            swipe.type = Gestures::Swipe;
+                            swipe.swipe.state = GestureState::Start;
+                            swipe.swipe = {
                                 .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                                .y = resLerp(_startEvent.y, _resolutionY, _expectedY)
+                                .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                                .dx = 0,
+                                .dy = 0
                             }; 
                             _recognizer.pushGesture(swipe);
                             _state = SwipeOngoing;
@@ -162,10 +165,13 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                 float dist = distance(event, _startEvent);
                 if(dist >= 20) {
                     Gesture drag;
-                    drag.type = GestureType::DragStart;
-                    drag.dragStart = {
+                    drag.type = Gestures::Drag;
+                    drag.drag.state = GestureState::Start;
+                    drag.drag = {
                         .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                        .y = resLerp(_startEvent.y, _resolutionY, _expectedY)
+                        .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                        .dx = 0,
+                        .dy = 0
                     };
                     _recognizer.pushGesture(drag);
                     _state = DragOngoing;
@@ -178,12 +184,13 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                 int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
                 int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
                 Gesture drag;
-                drag.type = GestureType::DragMove;
-                drag.dragMove  = {
-                    .dx = dx,
-                    .dy = dy,
+                drag.type = Gestures::Drag;
+                drag.drag.state = GestureState::Move;
+                drag.drag  = {
                     .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY)
+                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .dx = dx,
+                    .dy = dy
                 };
                 _recognizer.pushGesture(drag);
             }
@@ -254,20 +261,30 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                 if(_predictions >= 10) {
                     if(_doubleTapHelper == Circular) {
                         Gesture circ;
-                        circ.type = GestureType::DTCircularStart;
-                        circ.dtCircularStart = {
+                        circ.type = Gestures::DoubleTapCircular;
+                        circ.dtCircular.state = GestureState::Start;
+                        circ.dtCircular = {
                             .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                            .y = resLerp(_startEvent.y, _resolutionY, _expectedY)
+                            .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                            .dx = 0,
+                            .dy = 0,
+                            .angle = 0.f,
+                            .deltaAngle = 0.f,
+                            .radius = 0.f,
+                            .speed = 0.f
                         };
                         _recognizer.pushGesture(circ);
 
                         _state = DoubleTapCircularOngoing;
                     } else if(_doubleTapHelper == Linear) {
                         Gesture swipe;
-                        swipe.type = GestureType::DTSwipeStart;
-                        swipe.dtSwipeStart = {
+                        swipe.type = Gestures::DoubleTapSwipe;
+                        swipe.dtSwipe.state = GestureState::Start;
+                        swipe.dtSwipe = {
                             .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                            .y = resLerp(_startEvent.y, _resolutionY, _expectedY)
+                            .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                            .dx = 0,
+                            .dy = 0
                         };
                         _recognizer.pushGesture(swipe);
 
@@ -284,12 +301,13 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                 int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
                 int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
                 Gesture swipe;
-                swipe.type = GestureType::DTSwipeMove;
-                swipe.dtSwipeMove = {
-                    .dx = dx,
-                    .dy = dy,
+                swipe.type = Gestures::DoubleTapSwipe;
+                swipe.dtSwipe.state = GestureState::Move;
+                swipe.dtSwipe = {
                     .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY)
+                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .dx = dx,
+                    .dy = dy
                 };
                 _recognizer.pushGesture(swipe);
 
@@ -323,14 +341,17 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     " x: " << event.x << 
                     " y: " << event.y << std::endl;*/
                 Gesture circ;
-                circ.type = GestureType::DTCircularMove;
-                circ.dtCircularMove = {
+                circ.type = Gestures::DoubleTapCircular;
+                circ.dtCircular.state = GestureState::Move;
+                circ.dtCircular = {
+                    .x = resLerp(event.x, _resolutionX, _expectedX),
+                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0,
                     .angle = angleCurr,
                     .deltaAngle = deltaAngle,
                     .radius = radius,
-                    .speed = speed,
-                    .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY)
+                    .speed = speed
                 };
                 _recognizer.pushGesture(circ);
             }
@@ -341,20 +362,24 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                 int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
                 int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
                 Gesture swipe;
-                swipe.type = GestureType::SwipeMove;
-                swipe.swipeMove = {
-                    .dx = dx,
-                    .dy = dy,
+                swipe.type = Gestures::Swipe;
+                swipe.swipe.state = GestureState::Move;
+                swipe.swipe = {
                     .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY)
+                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .dx = dx,
+                    .dy = dy
                 };
                 _recognizer.pushGesture(swipe);
             } else if(event.type == TouchEvent::Type::End) {
                 Gesture swipe;
-                swipe.type = GestureType::SwipeEnd;
-                swipe.swipeEnd = {
+                swipe.type = Gestures::Swipe;
+                swipe.swipe.state = GestureState::End;
+                swipe.swipe = {
                     .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY)
+                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0
                 };
                 _recognizer.pushGesture(swipe);
                 
@@ -395,7 +420,7 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                 } else if(_lastEvent.type == TouchEvent::Type::End) {
                     if(_tapTimer.active() && _tapTimer.expired(now)) {
                         Gesture tap;
-                        tap.type = GestureType::Tap;
+                        tap.type = Gestures::Tap;
                         tap.tap = {
                             .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
                             .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
@@ -413,10 +438,13 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
         case(DragOngoing): {
             if(_lastEvent.type == TouchEvent::Type::End) {
                 Gesture drag;
-                drag.type = GestureType::DragEnd;
-                drag.dragEnd = {
+                drag.type = Gestures::Drag;
+                drag.drag.state = GestureState::End;
+                drag.drag = {
                     .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
+                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0
                 };
                 _recognizer.pushGesture(drag);
 
@@ -427,7 +455,7 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
             if(_lastEvent.type == TouchEvent::Type::End) {
                 if(_doubleTapTimer.active() && _doubleTapTimer.expired(now)) {
                     Gesture dtap;
-                    dtap.type = GestureType::DoubleTap;
+                    dtap.type = Gestures::DoubleTap;
                     dtap.doubleTap = {
                         .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
                         .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
@@ -441,10 +469,13 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
         case(DoubleTapSwipeOngoing): {
             if(_lastEvent.type == TouchEvent::Type::End) {
                 Gesture swipe;
-                swipe.type = GestureType::DTSwipeEnd;
-                swipe.dtSwipeEnd = {
+                swipe.type = Gestures::DoubleTapSwipe;
+                swipe.dtSwipe.state = GestureState::End;
+                swipe.dtSwipe = {
                     .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
+                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0
                 };
                 _recognizer.pushGesture(swipe);
                 
@@ -454,10 +485,17 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
         case(DoubleTapCircularOngoing): {
             if(_lastEvent.type == TouchEvent::Type::End) {
                 Gesture circ;
-                circ.type = GestureType::DTCircularEnd;
-                circ.dtCircularEnd = {
+                circ.type = Gestures::DoubleTapCircular;
+                circ.dtCircular.state = GestureState::End;
+                circ.dtCircular = {
                     .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
+                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0,
+                    .angle = 0.f,
+                    .deltaAngle = 0.f,
+                    .radius = 0.f,
+                    .speed = 0.f
                 };
                 _recognizer.pushGesture(circ);
                 
@@ -467,10 +505,13 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
         case(SwipeOngoing): {
             if(_lastEvent.type == TouchEvent::Type::End) {
                 Gesture swipe;
-                swipe.type = GestureType::SwipeEnd;
-                swipe.swipeEnd = {
+                swipe.type = Gestures::Swipe;
+                swipe.swipe.state = GestureState::End;
+                swipe.swipe = {
                     .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
+                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0
                 };
                 _recognizer.pushGesture(swipe);
 
@@ -479,7 +520,7 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
         } break;
         case(Hold): {
             Gesture hold;
-            hold.type = GestureType::Hold;
+            hold.type = Gestures::Hold;
             hold.hold = {
                 .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
                 .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
@@ -502,7 +543,7 @@ void OneFingerFSM::reset() {
     _holdTimer.stop();
     if(_state != Idle) {
         Gesture touch;
-        touch.type = GestureType::TouchUp;
+        touch.type = Gestures::TouchUp;
         touch.touchUp = {
             .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
             .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)

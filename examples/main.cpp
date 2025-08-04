@@ -47,58 +47,54 @@ void processGestures(const std::vector<Gesture> & gestures) {
     if(gestures.empty()) return;
     for(const Gesture &g : gestures) {
         switch(g.type) {
-            case(GestureType::TouchDown):
+            case(Gestures::TouchDown):
                 std::cout << "It's touch down event!" << 
                 " x: " << g.touchDown.x << 
                 " y: " << g.touchDown.y << std::endl;    
             break;
-            case(GestureType::TouchUp):
+            case(Gestures::TouchUp):
                 std::cout << "It's touch up event!" << std::endl;
             break;
-            case(GestureType::Tap):
+            case(Gestures::Tap):
                 std::cout << "it's a Tap! " << std::endl;
             break;
-            case(GestureType::DoubleTap):
+            case(Gestures::DoubleTap):
                 std::cout << "It's a Double Tap!" << std::endl;
             break;
-            case(GestureType::Hold):
+            case(Gestures::Hold):
                 std::cout << "it's a Hold!" << std::endl;
             break;
-            case(GestureType::SwipeStart):
-                std::cout << "it's a Swipe Start!" << std::endl;
+            case(Gestures::Swipe):
+                if(g.swipe.state == GestureState::Start)
+                    std::cout << "it's a Swipe Start!" << std::endl;
+                else if(g.swipe.state == GestureState::Move)
+                    std::cout << "it's a Swipe Move!" << std::endl;
+                else if(g.swipe.state == GestureState::End)
+                    std::cout << "it's a Swipe End!" << std::endl;
             break;
-            case(GestureType::SwipeMove):
-                std::cout << "it's a Swipe Move!" << std::endl;
+            case(Gestures::Drag):
+                if(g.drag.state == GestureState::Start)
+                    std::cout << "it's a Drag Start!" << std::endl;
+                else if(g.drag.state == GestureState::Move)
+                    std::cout << "it's a Drag Move!" << std::endl;
+                else if(g.drag.state == GestureState::End)
+                    std::cout << "it's a Drag End!" << std::endl;
             break;
-            case(GestureType::SwipeEnd):
-                std::cout << "it's a Swipe End!" << std::endl;
+            case(Gestures::DoubleTapSwipe):
+                if(g.dtSwipe.state == GestureState::Start)
+                    std::cout << "it's a DoubleTapSwipe Start!" << std::endl;
+                else if(g.dtSwipe.state == GestureState::Move)
+                    std::cout << "it's a DoubleTapSwipe Move!" << std::endl;
+                else if(g.dtSwipe.state == GestureState::End)
+                    std::cout << "it's a DoubleTapSwipe End!" << std::endl;
             break;
-            case(GestureType::DragStart):
-                std::cout << "it's a Drag Start!" << std::endl;
-            break;
-            case(GestureType::DragMove):
-                std::cout << "it's a Drag Move!" << std::endl;
-            break;
-            case(GestureType::DragEnd):
-                std::cout << "it's a Drag End!" << std::endl;
-            break;
-            case(GestureType::DTSwipeStart):
-                std::cout << "it's a Double Tap Swipe Start!" << std::endl;
-            break;
-            case(GestureType::DTSwipeMove):
-                std::cout << "it's a Double Tap Swipe Move!" << std::endl;
-            break;
-            case(GestureType::DTSwipeEnd):
-                std::cout << "it's a Double Tap Swipe End!" << std::endl;
-            break;
-            case(GestureType::DTCircularStart):
-                std::cout << "it's a Double Tap Circular Start!" << std::endl;
-            break;
-            case(GestureType::DTCircularMove):
-                std::cout << "it's a Double Tap Circular Move!" << std::endl;
-            break;
-            case(GestureType::DTCircularEnd):
-                std::cout << "it's a Double Tap Circular End!" << std::endl;
+            case(Gestures::DoubleTapCircular):
+                if(g.dtCircular.state == GestureState::Start)
+                    std::cout << "it's a DoubleTapCircular Start!" << std::endl;
+                else if(g.dtCircular.state == GestureState::Move)
+                    std::cout << "it's a DoubleTapCircular Move!" << std::endl;
+                else if(g.dtCircular.state == GestureState::End)
+                    std::cout << "it's a DoubleTapCircular End!" << std::endl;
             break;
             default:
                 std::cout << "unknows gesture" << std::endl;

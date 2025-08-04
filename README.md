@@ -39,3 +39,11 @@ TODO:
 [ ] - Code cleanup  
 
 Tested on Raspberry Pi 4 with generic USB touchscreen devices.  
+
+
+log:
+04.08.25
+Added enum GestureState, now instead of using separate structures for complex Gestures
+there is only one structure with state inside(see example) -> less callbacks
+
+Removed enum GestureType

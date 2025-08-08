@@ -42,6 +42,10 @@ Tested on Raspberry Pi 4 with generic USB touchscreen devices.
 
 
 log:  
+08.08.25  
+Bugfix: GestureState for complex gestures always was Start.  
+Now state working well.
+
 04.08.25  
 Added enum GestureState, now instead of using separate structures for complex Gestures
 there is only one structure with state inside(see example) -> less callbacks  

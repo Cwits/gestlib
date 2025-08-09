@@ -30,7 +30,7 @@ Known issues:
 
 TODO:  
 [ ] - Double Tap Circular Gesture  
-[ ] - Fake Touch Driver thru glfw mouse and keyboard  
+[ ] - Fake Touch Driver  
 [ ] - 2 and 3 finger gestures recognition.  
 [ ] - Bug fixes  
 [ ] - Implement some test cases  

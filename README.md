@@ -35,7 +35,7 @@ TODO:
 [ ] - Bug fixes  
 [ ] - Implement some test cases  
 [ ] - Synchronization of SYN_DROPPED(for now just ignored)  
-[ ] - Easy way to configure some timeouts
+[ ] - Easy way to configure some timeouts  
 [ ] - Code comments  
 [ ] - Code cleanup  
 

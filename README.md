@@ -41,8 +41,10 @@ TODO:
 
 Tested on Raspberry Pi 4 with generic USB touchscreen devices.  
 
-
 log:  
+05.10.25  
+Hold event now supports GestureState and can be used similarly as Drag gesture but with longer timeout(initiated after hold).
+
 08.08.25  
 Bugfix: GestureState for complex gestures always was Start.  
 Now state working well.

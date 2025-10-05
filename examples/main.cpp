@@ -62,7 +62,13 @@ void processGestures(const std::vector<Gesture> & gestures) {
                 std::cout << "It's a Double Tap!" << std::endl;
             break;
             case(Gestures::Hold):
-                std::cout << "it's a Hold!" << std::endl;
+                if(g.hold.state == GestureState::Start) {
+                    std::cout << "it's a Hold Start!" << std::endl;
+                } else if(g.hold.state == GestureState::Move) {
+                    std::cout << "it's a Hold Move!" << std::endl;
+                } else if(g.hold.state == GestureState::End) {
+                    std::cout << "it's a Hold End!" << std::endl;
+                }
             break;
             case(Gestures::Swipe):
                 if(g.swipe.state == GestureState::Start)

@@ -37,8 +37,11 @@ struct TapGesture {
 };
 
 struct HoldGesture {
+    GestureState state;
     int x;
     int y;
+    int dx;
+    int dy;
 };
 
 struct DoubleTapGesture {

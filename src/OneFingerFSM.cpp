@@ -388,7 +388,30 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
         } break;
         case(Hold): {
             //do nothing
-            reset();
+            if(event.id != _startEvent.id) {
+                reset();
+            }
+        } break;
+        case(HoldOngoing): {
+            if(event.id != _startEvent.id) {
+                reset();
+            }
+
+            if(event.type == TouchEvent::Type::Move) {
+                int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
+                int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
+                
+                Gesture hold;
+                hold.type = Gestures::Hold;
+                hold.hold = {
+                    .state = GestureState::Move,
+                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
+                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .dx = dx,
+                    .dy = dy,
+                };
+                _recognizer.pushGesture(hold);
+            }
         } break;
     }
     _lastEvent = event;
@@ -519,15 +542,42 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
             }
         } break;
         case(Hold): {
-            Gesture hold;
-            hold.type = Gestures::Hold;
-            hold.hold = {
-                .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
-            };
-            _recognizer.pushGesture(hold);
+            if(_lastEvent.id != _startEvent.id) {
+                reset();
+            }
 
-            reset();
+            if(_lastEvent.type == TouchEvent::Type::Begin) {
+                Gesture hold;
+                hold.type = Gestures::Hold;
+                hold.hold = {
+                    .state = GestureState::Start,
+                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
+                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0,
+                };
+                _recognizer.pushGesture(hold);
+                _state = HoldOngoing;
+            }
+        } break;
+        case(HoldOngoing): {
+            if(_lastEvent.id != _startEvent.id) {
+                reset();
+            }
+
+            if(_lastEvent.type == TouchEvent::Type::End) {
+                Gesture hold;
+                hold.type = Gestures::Hold;
+                hold.hold = {
+                    .state = GestureState::End,
+                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
+                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .dx = 0,
+                    .dy = 0,
+                };
+                _recognizer.pushGesture(hold);
+                reset();
+            }
         } break;
     }
 

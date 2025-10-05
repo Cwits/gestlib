@@ -34,7 +34,8 @@ class OneFingerFSM {
         DoubleTapSwipeOngoing,
         DoubleTapCircularOngoing,
         SwipeOngoing,
-        Hold 
+        Hold,
+        HoldOngoing
     };
     state _state = Idle;
     TouchEvent _lastEvent;

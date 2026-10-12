@@ -3,6 +3,7 @@
 
 #pragma once
 #include <variant>
+#include <string>
 
 namespace GestLib {
 
@@ -88,6 +89,16 @@ struct DTCircularGesture {
     float speed;
 };
 
+struct ZoomGesture {
+    GestureState state;
+    int x1;
+    int y1;
+    int x2;
+    int y2;
+    float hZoom;
+    float vZoom;
+};
+
 struct TouchDownEvent {
     int x;
     int y;
@@ -110,7 +121,31 @@ struct Gesture {
         DragGesture drag;
         DTSwipeGesture dtSwipe;
         DTCircularGesture dtCircular;
+        ZoomGesture zoom;
     };
 };
+
+
+inline std::string gestureToText(GestLib::Gestures &g) {
+    std::string text;
+    switch(g) {
+        case(GestLib::Gestures::TouchDown): text = "Touch Down"; break;
+        case(GestLib::Gestures::TouchUp): text = "Touch Up"; break;
+        case(GestLib::Gestures::Tap): text = "Tap"; break;
+        case(GestLib::Gestures::Hold): text = "Hold"; break;
+        case(GestLib::Gestures::Drag): text = "Drag"; break;
+        case(GestLib::Gestures::Swipe): text = "Swipe"; break;
+        case(GestLib::Gestures::DoubleTap): text = "Double Tap"; break;
+        case(GestLib::Gestures::DoubleTapSwipe): text = "Double Tap Swipe"; break;
+        case(GestLib::Gestures::DoubleTapCircular): text = "Double Tap Circular"; break;
+        case(GestLib::Gestures::Zoom): text = "Zoom"; break;
+        case(GestLib::Gestures::TwoFingerTap): text = "Two Finger Tap"; break;
+        case(GestLib::Gestures::TwoFingerSwipe): text = "Two Finger Swipe"; break;
+        case(GestLib::Gestures::ThreeFingerTap): text = "Three Finger Tap"; break;
+        case(GestLib::Gestures::ThreeFingerSwipe): text = "Three Finger Swipe"; break;
+    }
+    return text;
+}
+
 
 }

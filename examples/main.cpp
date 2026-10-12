@@ -23,7 +23,7 @@ int main() {
     
     GestureRecognizer recognizer; //or fake
 
-    if(!recognizer.init()) {
+    if(!recognizer.init(GestLib::Config{})) {
         return 1;
     }
     
@@ -106,7 +106,7 @@ void processGestures(const std::vector<Gesture> & gestures) {
                     std::cout << "it's a DoubleTapCircular End!" << std::endl;
             break;
             default:
-                std::cout << "unknows gesture" << std::endl;
+                std::cout << "unknows or unhandled gesture" << std::endl;
             break;
         }
     }

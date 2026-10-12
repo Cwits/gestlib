@@ -24,7 +24,7 @@ GestureRecognizer::~GestureRecognizer() {
     if(_running) shutdown();
 }
 
-bool GestureRecognizer::init() {
+bool GestureRecognizer::init(Config cfg) {
     if(!_dri.init()) {
         std::cout << "Failed to init real driver, try to use fake one" << std::endl;
         return false;
@@ -35,9 +35,9 @@ bool GestureRecognizer::init() {
         return false;
     }
 
-    _efd = eventfd(0, EFD_NONBLOCK);
+    _shutdownfd = eventfd(0, EFD_NONBLOCK);
     
-    if(_efd == -1) {
+    if(_shutdownfd == -1) {
         std::cout << "efd error" << std::endl;
         return false;
     }
@@ -51,12 +51,12 @@ bool GestureRecognizer::shutdown() {
     _running = false;
 
     uint64_t u = 1;
-    write(_efd, &u, sizeof(u));
+    write(_shutdownfd, &u, sizeof(u));
 
     _recognizer.join();
     
     _dri.shutdown();
-    close(_efd);
+    close(_shutdownfd);
 
     return true;
 }
@@ -69,25 +69,25 @@ bool GestureRecognizer::start() {
         struct pollfd fds[2];
         fds[0].fd = this->_dri.fd();
         fds[0].events = POLLIN;
-        fds[1].fd = this->_efd;
+        fds[1].fd = this->_shutdownfd;
         fds[1].events = POLLIN;
 
         while(this->_running) {    
             int ret = 0;
             auto now = std::chrono::steady_clock::now();
             if(std::chrono::duration_cast<std::chrono::milliseconds>(now - this->_lastAction) > IDLE_TIMEOUT) {
-                ret = poll(fds, 2, -1);
+                ret = poll(fds, 2, -1); //to not waste excess resources - go sleep infinitely
             } else {
                 ret = poll(fds, 2, 20);
             }
             
             if(ret < 0) {
                 std::cout << "some error" << std::endl;
+            } else if(ret > 0) {
+                this->_lastAction = std::chrono::steady_clock::now();
             } else if(ret == 0) {
                 //...
                 // std::cout << "ret=0" << std::endl;
-            } else if(ret > 0) {
-                this->_lastAction = std::chrono::steady_clock::now();
             }
 
             if(fds[1].revents & POLLIN) {
@@ -97,15 +97,27 @@ bool GestureRecognizer::start() {
             std::vector<TouchEvent> touches = this->_dri.getEvents();
             std::size_t size = touches.size();
                     
-            if(size == 0) {
-                this->_ofs.resetOrProcess(/*touches*/);
-            }else if(size == 1) {
-                this->_ofs.process(touches);
-            } else if(size == 2) {
-                this->_ofs.reset();
-            } else if(size == 3) {
-                this->_ofs.reset();
-            }    
+            switch(size) {
+                case(0): {
+                    this->_ofs.resetOrProcess();
+                    //this->_tfs.resetOrProcess();
+                } break;
+                case(1): {
+                    this->_ofs.process(touches);
+                    //this->_tfs.resetOrProcess(touches);
+                } break;
+                case(2): {
+                    this->_ofs.reset();
+                    //this->_tfs.process(touches);
+                } break;
+                case(3): {
+                    this->_ofs.reset();
+                    //this->_tfs.reset();
+                    //this->threefs.process(touches);
+                } break;
+                default:
+                    ; break;
+            }
 
             // for(int i=0; i<touches.size(); ++i) {
             //     TouchEvent & ev = touches.at(i);

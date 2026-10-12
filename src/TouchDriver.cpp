@@ -32,6 +32,7 @@ TouchDriver::TouchDriver(int maxFingers) :
     _currentSlot(0),
     _raw(maxFingers),
     _currentFrameFingers(maxFingers),
+    _debounced(maxFingers),
     _internalIdCounter(0)
 {
     _logicalFingers.reserve(maxFingers);
@@ -55,15 +56,15 @@ bool TouchDriver::shutdown() {
 }
 
 std::vector<TouchEvent> TouchDriver::getEvents() {
-    bool data = readData();
-    return process(data);
+    std::chrono::time_point<std::chrono::steady_clock> now = std::chrono::steady_clock::now();
+    bool data = readData(now);
+    return process(data, now);
 }
 
-bool TouchDriver::readData() {      
+bool TouchDriver::readData(const std::chrono::time_point<std::chrono::steady_clock> &now) {
     bool reading = true;
     bool newData = false;
 
-    std::chrono::time_point<std::chrono::steady_clock> now = std::chrono::steady_clock::now();
     while(reading) {
 
         struct input_event ev;
@@ -126,152 +127,158 @@ bool TouchDriver::readData() {
     return newData;
 }
 
-std::vector<TouchEvent> TouchDriver::process(bool newData) {
+std::vector<TouchEvent> TouchDriver::process(bool newData, const std::chrono::time_point<std::chrono::steady_clock> &now) {
     std::vector<TouchEvent> ret;
-    std::chrono::time_point<std::chrono::steady_clock> now = std::chrono::steady_clock::now();
+    ret.reserve(_maxFingers);
     
+    for(auto &f : _debounced) f.updatedThisFrame = false;
+
     if(newData) {
         _currentFrameFingers.clear();
-        for(const auto & raw : _raw) {
-            if(raw.active) {
-                _currentFrameFingers.push_back(raw);
-            }
+        for(const auto &r : _raw) {
+            if(r.active) _currentFrameFingers.push_back(r);
         }
 
-        for(auto & finger : _logicalFingers) {
-            finger.updatedThisFrame = false;
-        }
+        for(const auto &r : _currentFrameFingers) {
+            DebouncedFinger *match = nullptr;
 
-        for(const auto & raw : _currentFrameFingers) {
-            LogicalFinger * match = nullptr;
-
-            for(auto & finger : _logicalFingers) {
-                if(finger.lastTrackedId == raw.trackId) {
-                    match = &finger;
+            //try to match last readed touches with last debounced touches
+            for(auto &d : _debounced) {
+                if(d.lastTrackedId == r.trackId) {
+                    match = &d;
                     break;
                 }
             }
 
+            //maybe id jumped, try to find nearest touch
             if(!match) {
-                for(auto & finger : _logicalFingers) {
-                    if(finger.state == FingerState::Lost) {
-                        int dx = finger.x - raw.x;
-                        int dy = finger.y - raw.y;
+                for(auto &f : _debounced) {
+                    if(f.state != FingerState::Lost) continue;
 
-                        if(std::abs(dx) <= 30 && std::abs(dy) <= 30 &&
-                            std::chrono::duration_cast<std::chrono::milliseconds>(now - finger.lastAction) < LOST_TIMEOUT) {
-                            match = &finger;
-                            break;
-                        }
+                    int dx = f.x - r.x;
+                    int dy = f.y - r.y;
+                    //maybe should check for id as well? or it isn't guaranteed?
+                    if(std::abs(dx) <= 30 && 
+                        std::abs(dy) <= 30 &&
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now - f.lastActive) < LOST_TIMEOUT) 
+                    {
+                        match = &f;
+                        break;
                     }
                 }
             }
 
-            if(match) {
-                match->lastX = match->x;
-                match->lastY = match->y;
-                match->x = raw.x;
-                match->y = raw.y;
-                match->lastAction = raw.lastAction;
-                if(match->state == FingerState::Probation) {
-                    match->activeCount++;
-                }
-                match->lastTrackedId = raw.trackId;
-                match->updatedThisFrame = true;
-            } else {
-                _logicalFingers.push_back({
-                    .logicalId = _internalIdCounter++,
-                    .lastTrackedId = raw.trackId,
+            if(!match) {
+                //new touch to debounce
+                _debounced.push_back({
+                    .id = _internalIdCounter++,
+                    .lastTrackedId = r.trackId,
                     .state = FingerState::Probation,
-                    .x = raw.x,
-                    .y = raw.y,
-                    .lastX = raw.x,
-                    .lastY = raw.y,
-                    .activeCount = 0,
+                    .x = r.x,
+                    .y = r.y,
+                    .prevX = r.x,
+                    .prevY = r.y,
+                    .noiseDebounce = 0,
                     .updatedThisFrame = true,
                     .markToDelete = false,
-                    .lastAction = raw.lastAction
+                    .lastActive = r.lastAction
                 });
+            } else {
+                match->prevX = match->x;
+                match->prevY = match->y;
+                match->x = r.x;
+                match->y = r.y;
+                match->lastActive = r.lastAction;
+                match->lastTrackedId = r.trackId;
+                match->updatedThisFrame = true;
+                if(match->state == FingerState::Probation)
+                    match->noiseDebounce++;
             }
         }
     }
 
-    for(auto& finger : _logicalFingers) {
-        if(finger.state == FingerState::Probation) {
-            bool test2 = std::chrono::duration_cast<std::chrono::milliseconds>(now - finger.lastAction) > PROBATION_THRESHOLD;
-            bool test3 = finger.activeCount > ACTIVATION_COUNT;
-            
-            if(!test2 && test3) {
-                finger.state = FingerState::Active;
-                //touch down event
-                ret.push_back({
-                    .id = finger.logicalId,
-                    .type = TouchEvent::Type::Begin,
-                    .x = finger.x,
-                    .y = finger.y
-                });
-                finger.updatedThisFrame = false;
-                finger.lastAction = now;
-            } else if(test2 && !test3) {
-                finger.markToDelete = true;
-            }
-        } else if(finger.state == FingerState::Lost) {
-            if(finger.updatedThisFrame) {
-                finger.state = FingerState::Active;
-                // probablyMove(finger, ret, now);
-                finger.updatedThisFrame = false;
-                finger.lastAction = now;
-            } else {
-                if(std::chrono::duration_cast<std::chrono::milliseconds>(now - finger.lastAction) >= LOST_TIMEOUT) {
+    for(auto &f : _debounced) {
+        switch(f.state) {
+            case(FingerState::Probation): {
+                bool test1 = std::chrono::duration_cast<std::chrono::milliseconds>(now - f.lastActive) > PROBATION_THRESHOLD;
+                bool test2 = f.noiseDebounce > ACTIVATION_COUNT;
+
+                //if got more activations within PROBATION_THRESHOLD
+                if(!test1 && test2) {
+                    //passed debounce
                     ret.push_back({
-                        .id = finger.logicalId,
-                        .type = TouchEvent::Type::End,
-                        .x = finger.x,
-                        .y = finger.y
+                        .id = f.id,
+                        .type = TouchEvent::Type::Begin,
+                        .x = f.x,
+                        .y = f.y
                     });
-                    finger.markToDelete = true;
+                    f.state = FingerState::Active;
+                    f.lastActive = now;
+                } else if(test1) {
+                    f.markToDelete = true;
                 }
-            }
-        } else { // Active
-            if(finger.updatedThisFrame) {
-                //move?
-                probablyMove(finger, ret);
-                finger.updatedThisFrame = false;
-                finger.lastAction = now;
-            } else {
-                if(std::chrono::duration_cast<std::chrono::milliseconds>(now - finger.lastAction) >= ACTIVE_TO_LOST) {
-                    finger.state = FingerState::Lost;
-                    finger.lastAction = now;
+            } break;
+            case(FingerState::Active): {
+                if(f.updatedThisFrame) {
+                    probablyMove(f, ret);
+                    f.lastActive = now;
+                } else {
+                    if(std::chrono::duration_cast<std::chrono::milliseconds>(now - f.lastActive) >= ACTIVE_TO_LOST) {
+                        f.state = FingerState::Lost;
+                        f.lastActive = now;
+                    }
                 }
-            }
+            } break;
+            case(FingerState::Lost): {
+                if(f.updatedThisFrame) {
+                    f.state = FingerState::Active;
+                    f.lastActive = now;
+                } else {
+                    if(std::chrono::duration_cast<std::chrono::milliseconds>(now - f.lastActive) >= LOST_TIMEOUT) {
+                        ret.push_back({
+                            .id = f.id,
+                            .type = TouchEvent::Type::End,
+                            .x = f.x,
+                            .y = f.y
+                        });
+                        f.markToDelete = true;
+                    }
+                }
+            } break;
         }
     }
-
-
-    _logicalFingers.erase(std::remove_if(_logicalFingers.begin(), _logicalFingers.end(),
-        [&](const LogicalFinger& finger) {
-            return finger.markToDelete;
-    }), _logicalFingers.end());
+    
+    _debounced.erase(
+        std::remove_if(
+            _debounced.begin(), 
+            _debounced.end(),
+            [&](const DebouncedFinger& finger) {
+                return finger.markToDelete;
+            }
+        ), 
+        _debounced.end()
+    );
 
     return ret;
 }
 
-void TouchDriver::probablyMove(LogicalFinger & finger, std::vector<TouchEvent> & ret) {
-    float threshold_min = 2.0f;
-    float threshold_max = 30.0f;
+void TouchDriver::probablyMove(DebouncedFinger & finger, std::vector<TouchEvent> & ret) {
+    int threshold_min = 2;
+    int threshold_max = 30;
     
-    int dx = finger.x - finger.lastX;
-    int dy = finger.y - finger.lastY;
+    int dx = finger.x - finger.prevX;
+    int dy = finger.y - finger.prevY;
     int res = (dx*dx) + (dy*dy);
     if (res >= threshold_min*threshold_min && res <= threshold_max*threshold_max) {
         ret.push_back({
-            .id = finger.logicalId,
+            // .id = finger.logicalId,
+            .id = finger.id,
             .type = TouchEvent::Type::Move,
             .x = finger.x,
             .y = finger.y
         });
-        finger.lastX = finger.x;
-        finger.lastY = finger.y;
+        finger.prevX = finger.x;
+        finger.prevY = finger.y;
     }
 }
 

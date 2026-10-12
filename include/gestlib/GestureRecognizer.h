@@ -15,12 +15,23 @@
 
 namespace GestLib {
 
+struct Config {
+    int idleTimeout;
+    int idleThreshold;
+    int debounceThreshold;
+    int activeToLost;
+    int lostTimeout;
+    int activationCount;
+    int outputWidth;
+    int outputHeight;
+};
+
 class GestureRecognizer {
     public:
     GestureRecognizer();
     ~GestureRecognizer();
 
-    bool init();
+    bool init(Config cfg);
     void windowSize(int x, int y) { _ofs.expectedResolution(x, y); }
     bool start();
     bool shutdown();
@@ -38,7 +49,7 @@ class GestureRecognizer {
     std::vector<Gesture> _gesturesQueue;
 
     std::chrono::time_point<std::chrono::steady_clock> _lastAction;
-    int _efd = -1;
+    int _shutdownfd = -1;
 
     void pushGesture(Gesture gest);
     friend class OneFingerFSM;

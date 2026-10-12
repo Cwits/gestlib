@@ -81,13 +81,30 @@ class TouchDriver {
         std::chrono::time_point<std::chrono::steady_clock> lastAction;
     };
 
+    struct DebouncedFinger {
+        int id;
+        int lastTrackedId;
+        FingerState state;
+
+        int x;
+        int y;
+        int prevX;
+        int prevY;
+        int noiseDebounce;
+
+        bool updatedThisFrame;
+        bool markToDelete;
+        std::chrono::time_point<std::chrono::steady_clock> lastActive;
+    };
+
     std::vector<LogicalFinger> _logicalFingers;
+    std::vector<DebouncedFinger> _debounced;
     std::vector<RawFinger> _currentFrameFingers;
     int _internalIdCounter;
 
-    bool readData();
-    std::vector<TouchEvent> process(bool newData);
-    void probablyMove(LogicalFinger & finger, std::vector<TouchEvent> & ret);
+    bool readData(const std::chrono::time_point<std::chrono::steady_clock> &now);
+    std::vector<TouchEvent> process(bool newData, const std::chrono::time_point<std::chrono::steady_clock> &now);
+    void probablyMove(DebouncedFinger & finger, std::vector<TouchEvent> & ret);
 };
 
 }

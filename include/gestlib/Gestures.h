@@ -18,11 +18,12 @@ enum class Gestures {
     Drag,           //+
     DoubleTap,      //+
     DoubleTapSwipe, //+
-    DoubleTapCircular, //+ //TapTap-hold and go circular
-    //EdgeSwipe,
+    DoubleTapCircular, //+ in code but not working - do i need this one?
     //two fingers
     Zoom,
-    TwoFingerTap, //?
+    Rotate,
+    TwoFingerTap, //+
+    TwoFingerDoubleTap,
     TwoFingerSwipe,
     //three fingers
     ThreeFingerTap,
@@ -89,14 +90,38 @@ struct DTCircularGesture {
     float speed;
 };
 
+struct TwoFingerTap {
+    int x;
+    int y;
+};
+
+struct TwoFingerDoubleTap {
+    int x;
+    int y;
+};
+
+struct TwoFingerSwipe { //sometimes is recognized as Zoom
+    GestureState state;
+    int x; 
+    int y;
+    int dx;
+    int dy;
+};
+
 struct ZoomGesture {
     GestureState state;
-    int x1;
-    int y1;
-    int x2;
-    int y2;
-    float hZoom;
-    float vZoom;
+    int xCenter; //(x1 + x2) / 2  
+    int yCenter; //(y1 + y2) / 2
+    float horDif; //delta of horizontal zoom since previous event
+    float horAbs; //absolute value of horizontal zoom since touch down
+    float verDif; //delta of vertical zoom since previous event
+    float verAbs; //absolute value of vertical zoom since touch down
+};
+
+struct RotateGesture {
+    GestureState state;
+    int x;
+    int y;
 };
 
 struct TouchDownEvent {
@@ -121,12 +146,31 @@ struct Gesture {
         DragGesture drag;
         DTSwipeGesture dtSwipe;
         DTCircularGesture dtCircular;
+        TwoFingerTap tfTap;
+        TwoFingerDoubleTap tfDoubleTap;
+        TwoFingerSwipe tfSwipe;
         ZoomGesture zoom;
+        RotateGesture rotate;
     };
 };
 
+/*
+or JoystickArea or just Joystick?
+TouchDown and TouchUp handled by target itself?
+touch Event will be extracted from event vector from driver and passed separately
+rest of events will be processed as usual
+must be one finger only?
+*/
+struct TouchCapture {
+    virtual bool onMove(const TouchEvent &touch) = 0;
+    virtual bool onCancle() = 0;
 
-inline std::string gestureToText(GestLib::Gestures &g) {
+    private:
+    int CapturedEventId = -1;
+    
+};
+
+inline std::string gestureToText(const GestLib::Gestures &g) {
     std::string text;
     switch(g) {
         case(GestLib::Gestures::TouchDown): text = "Touch Down"; break;
@@ -139,10 +183,13 @@ inline std::string gestureToText(GestLib::Gestures &g) {
         case(GestLib::Gestures::DoubleTapSwipe): text = "Double Tap Swipe"; break;
         case(GestLib::Gestures::DoubleTapCircular): text = "Double Tap Circular"; break;
         case(GestLib::Gestures::Zoom): text = "Zoom"; break;
+        case(GestLib::Gestures::Rotate): text = "Rotate"; break;
         case(GestLib::Gestures::TwoFingerTap): text = "Two Finger Tap"; break;
+        case(GestLib::Gestures::TwoFingerDoubleTap): text = "Two Finger Double Tap"; break;
         case(GestLib::Gestures::TwoFingerSwipe): text = "Two Finger Swipe"; break;
         case(GestLib::Gestures::ThreeFingerTap): text = "Three Finger Tap"; break;
         case(GestLib::Gestures::ThreeFingerSwipe): text = "Three Finger Swipe"; break;
+        default: text = "Unrecognized gesture"; break;
     }
     return text;
 }

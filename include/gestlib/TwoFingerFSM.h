@@ -6,75 +6,67 @@
 #include <vector>
 #include <deque>
 #include <chrono>
+#include <tuple>
 
 namespace GestLib {
 
-class GestureRecognizer;
-class TwoFingerFSM {
-    public:
-    TwoFingerFSM(GestureRecognizer & rec);
+struct GestureRecognizer;
 
-    bool init(int resX, int resY);
-    void expectedResolution(int x, int y);
+struct TwoFingerFSM {
+    TwoFingerFSM(GestureRecognizer &rec);
+    ~TwoFingerFSM();
+
+    bool init(int driverWidth, int driverHeight);
+    void outputResolution(int w, int h);
 
     void process(std::vector<TouchEvent> & touches);
-    int resetOrProcess(/*std::vector<TouchEvent> & touches*/);
+    void resetOrProcess();
     void reset();
 
     private:
+    int _driverWidth;
+    int _driverHeight;
 
-    int _resolutionX;
-    int _resolutionY;
-    int _expectedX;
-    int _expectedY;
+    int _outputWidth;
+    int _outputHeight;
 
-    enum state {
+    //gestures: Tap, DoubleTap, Swipe, Zoom, Rotate
+    enum class state {
         Idle,
         Stroke,
-        DragOrHold,
-        DragOngoing,
-        DoubleTapPossible,
-        DoubleTapSwipeOngoing,
-        DoubleTapCircularOngoing,
+        Tap,
+        DoubleTap,
+        Swipe,
         SwipeOngoing,
-        Hold,
-        HoldOngoing
+        Zoom,
+        ZoomOngoing,
+        Rotate
     };
-    state _state = Idle;
-    TouchEvent _lastEvent;
-    TouchEvent _startEvent;
 
-    enum gestureMove {
-        Undetected,
-        Linear,
-        Circular
-    };
-    
-    gestureMove _doubleTapHelper;
-    int _predictions;
-    std::deque<TouchEvent> _eventsHistory;
+    state _state;
 
-    struct timer {
-        using timePoint = std::chrono::time_point<std::chrono::steady_clock>;
-        void start(int timeout, timePoint & now);
-        void stop();
-        bool active() { return _active; }
-        bool expired(timePoint & now);
+    // enum class TouchState {
+    //     Begin,
+    //     Move,
+    //     End
+    // };
+    // TouchState _tstate;
 
-        private:
-        int _timeout;
-        bool _active;
-        timePoint _startTime;
-    };
+    using Event = std::pair<TouchEvent, TouchEvent>;
+
+    Event _startTouches;
+    Event _lastTouches;
+
+    std::deque<Event> _eventHistory;
+
+    TimePoint _idleToStroke;
+    bool _idleActive;
 
     timer _tapTimer;
-    timer _doubleTapTimer;
-    timer _dragOrHoldTimer;
-    timer _holdTimer;
+
 
     GestureRecognizer & _recognizer;
-
-    void printState(state state);
+    void printstate(bool);
 };
 
 }

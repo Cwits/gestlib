@@ -6,6 +6,7 @@
 #include "Gestures.h"
 #include "TouchDriver.h"
 #include "OneFingerFSM.h"
+#include "TwoFingerFSM.h"
 
 #include <vector>
 #include <atomic>
@@ -15,32 +16,35 @@
 
 namespace GestLib {
 
-struct Config {
-    int idleTimeout;
-    int idleThreshold;
-    int debounceThreshold;
-    int activeToLost;
-    int lostTimeout;
-    int activationCount;
-    int outputWidth;
-    int outputHeight;
-};
-
 class GestureRecognizer {
     public:
-    GestureRecognizer();
+    GestureRecognizer(GestLib::RecognizerConfig);
     ~GestureRecognizer();
 
-    bool init(Config cfg);
-    void windowSize(int x, int y) { _ofs.expectedResolution(x, y); }
+    bool init(TouchDriver *dri);
     bool start();
     bool shutdown();
 
     std::vector<Gesture> fetchGestures();
 
+    // void registerTouchCapture(TouchCapture *tc); //must be threadsafe
+    // void unregisterTouchCapture(TouchCapture *tc); //must be threadsafe
+
     private:
-    TouchDriver _dri;
+    GestLib::RecognizerConfig _cfg;
+
+    enum class RecognizerState {
+        Idle,
+        OneFingerOngoing,
+        TwoFingerOngoing
+    };
+
+    RecognizerState _state;
+    void reset() { _state = RecognizerState::Idle; }
+
+    TouchDriver *_dri;
     OneFingerFSM _ofs;
+    TwoFingerFSM _tfs;
 
     std::mutex _lock;
     std::thread _recognizer;
@@ -49,10 +53,11 @@ class GestureRecognizer {
     std::vector<Gesture> _gesturesQueue;
 
     std::chrono::time_point<std::chrono::steady_clock> _lastAction;
-    int _shutdownfd = -1;
+    int _efd = -1;
 
     void pushGesture(Gesture gest);
     friend class OneFingerFSM;
+    friend class TwoFingerFSM;
 };
 
 }

@@ -1,8 +1,13 @@
-#include "feeder.h"
+// Copyright (c) 2025 Cwits
+// Licensed under the MIT License. See LICENSE file in the project root for details.
+#include "gestlib/Feeder.h"
 
 #include <unordered_map>
 #include <chrono>
 #include <iostream>
+#include <libevdev/libevdev.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 const std::unordered_map<int, std::string> TYPES = {
     { 0, "EV_SYN" },
@@ -55,16 +60,20 @@ void prevent(const input_event &ev) {
 	std::cout << std::endl;
 }
 
-bool feeder::prepare(std::string path) {
+Feeder::~Feeder() {
+	close(_fd);
+}
+
+bool Feeder::prepare(std::string path) {
 	if(path.empty()) {
-		prl("Path is empty");
+		std::cout << "Path is empty" << std::endl;
 		return false;
 	}
 	
 	_in.open(path, std::ios::binary | std::ios::in);
 	
 	if(!_in.is_open()) {
-		prl("failed to open");
+		std::cout << "failed to open" << std::endl;
 		return false;
 	}
 	
@@ -103,10 +112,14 @@ bool feeder::prepare(std::string path) {
 	}
 	
 	std::cout << "readed " << _events.size() << " events" << std::endl;
+
+	_fd = eventfd(0, EFD_NONBLOCK);
+	
+	
 	return true;
 }
 
-void feeder::start(std::chrono::milliseconds startDelay)  {
+void Feeder::start(std::chrono::milliseconds startDelay)  {
 	timeval ref = _events.at(0).time;
 	std::size_t eventsprocessed = 0;
 	std::chrono::steady_clock::time_point start;
@@ -118,6 +131,14 @@ void feeder::start(std::chrono::milliseconds startDelay)  {
 	start = std::chrono::steady_clock::now();
 	
 	while(eventsprocessed != _events.size()) {
+		if(_resetSignal) {
+			start = std::chrono::steady_clock::now();
+			eventsprocessed = 0;
+			
+			_resetSignal = false;
+			std::this_thread::sleep_for(startDelay);
+		}
+
 		auto ntp = std::chrono::steady_clock::now();
 		auto timediff = std::chrono::duration_cast<std::chrono::microseconds>(ntp - start).count();
 		
@@ -132,6 +153,9 @@ void feeder::start(std::chrono::milliseconds startDelay)  {
 		{
 			std::lock_guard<std::mutex> l(_liveLock);
 			_liveFeed.push(ie);
+					
+			uint64_t u = 1;
+			write(_fd, &u, sizeof(u));
 		}
 		
 		//prevent(ie);
@@ -139,7 +163,7 @@ void feeder::start(std::chrono::milliseconds startDelay)  {
 	}
 }
 
-int feeder::next_event(input_event *ev) {
+int Feeder::next_event(input_event *ev) {
 	std::lock_guard<std::mutex> lock(_liveLock);
 	if(_liveFeed.size()) {
 		*ev = _liveFeed.front();

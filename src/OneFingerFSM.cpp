@@ -5,127 +5,75 @@
 
 #include "gestlib/GestureRecognizer.h"
 #include "gestlib/Gestures.h"
+#include "gestlib/defines.h"
 
 #include <cmath>
 #include <algorithm>
 #include <iostream>
 
-float distance(const GestLib::TouchEvent & p1, const GestLib::TouchEvent & p2) {
-    float dx = p2.x - p1.x;
-    float dy = p2.y - p1.y;
-    return std::sqrt(dx * dx + dy * dy);
-}
-
-float dotProduct(const GestLib::TouchEvent & a, const GestLib::TouchEvent & b) {
-    return a.x * b.x + a.y * b.y;
-}
-
-float getAngle(float x, float y, float cx, float cy) {
-    return std::atan2(y - cy, x - cx); // ∈ [-π, π]
-}
-
-float pointToLineDistance(float x1, float y1, float x2, float y2, float px, float py) {
-    float dx = x2 - x1;
-    float dy = y2 - y1;
-    float lenSq = dx*dx + dy*dy;
-    float t = ((px - x1) * dx + (py - y1) * dy) / (lenSq + 1e-6);
-    t = std::clamp(t, 0.f, 1.f);
-    float projX = x1 + t * dx;
-    float projY = y1 + t * dy;
-    float distX = px - projX;
-    float distY = py - projY;
-    return std::sqrt(distX*distX + distY*distY);
-}
-
-float computeTurnAngleSum(const std::deque<GestLib::TouchEvent>& history) {
-    std::size_t size = history.size();
-    if (size < 10+2) return 0.0f;
-
-    float totalAngle = 0.0f;
-    //let's use some window of last 10 events
-    for (size_t i = size-10; i < size; ++i) {
-        float dx1 = history[i - 1].x - history[i - 2].x;
-        float dy1 = history[i - 1].y - history[i - 2].y;
-        float dx2 = history[i].x - history[i - 1].x;
-        float dy2 = history[i].y - history[i - 1].y;
-
-        float len1 = std::sqrt(dx1 * dx1 + dy1 * dy1);
-        float len2 = std::sqrt(dx2 * dx2 + dy2 * dy2);
-
-        if (len1 < 1e-3f || len2 < 1e-3f)
-            continue;
-
-        float dot = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
-        dot = std::clamp(dot, -1.0f, 1.0f);  
-
-        float angle = std::acos(dot);
-        totalAngle += std::abs(angle);
-    }
-
-    return totalAngle;
-}
-
-int resLerp(int x, int inMax, int outMax) {
-    return x * outMax / inMax;
-}
-
-float normalize_angle(float angle) {
-    while (angle <= -M_PI) angle += 2.0f * M_PI;
-    while (angle >  M_PI)  angle -= 2.0f * M_PI;
-    return angle;
-}
+static const auto idleThreshold = std::chrono::milliseconds(20);
 
 namespace GestLib {
 
-void OneFingerFSM::printState(state state) {
-    switch(state) {
-        case(Idle): std::cout << "Idle" << std::endl; break;
-        case(Stroke): std::cout << "Stroke" << std::endl; break;
-        case(DragOrHold): std::cout << "DragOrHold" << std::endl; break;
-        case(DragOngoing): std::cout << "DragOngoing" << std::endl; break;
-        case(DoubleTapPossible): std::cout << "DoubleTapPossible" << std::endl; break;
-        case(DoubleTapSwipeOngoing): std::cout << "DoubleTapSwipeOngoing" << std::endl; break;
-        case(DoubleTapCircularOngoing): std::cout << "DoubleTapCircularOngoing" << std::endl; break;
-        case(SwipeOngoing): std::cout << "SwipeOngoing" << std::endl; break;
-        case(Hold): std::cout << "Hold" << std::endl; break;
-    }
-}
+OneFingerFSM::OneFingerFSM(GestureRecognizer & rec, OneFingerFSMConfig cfg) : _recognizer(rec) {
+    _tapTimeout = cfg.tapTimeout;
+    _dragThreshold = cfg.dragThreshold;
+    _holdThreshold = cfg.holdThreshold;
+    _doubleTapTimeout = cfg.doubleTapTimeout;
+    _maxHistoryLength = cfg.maxHistoryLength;
 
-OneFingerFSM::OneFingerFSM(GestureRecognizer & rec) : _recognizer(rec) {
     _doubleTapHelper = Undetected;
 }
 
-bool OneFingerFSM::init(int resX, int resY) {
-    _resolutionX = resX;
-    _resolutionY = resY;
-
+bool OneFingerFSM::init(int driverWidth, int driverHeight) {
+    _driverWidth = driverWidth;
+    _driverHeight = driverHeight;
     return true;
 }
 
-void OneFingerFSM::expectedResolution(int x, int y) {
-    _expectedX = x;
-    _expectedY = y;
+void OneFingerFSM::outputResolution(int w, int h) {
+    _outputWidth = w;
+    _outputHeight = h;
 }
 
 void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
     TouchEvent & event = touches[0];
-    timer::timePoint now = std::chrono::steady_clock::now();
-    // printState(_state);
+    TimePoint now = std::chrono::steady_clock::now();
+#if DEBUG_PRINT == 1
+    printState(_state, true);
+#endif
+
     switch(_state) {
         case(Idle): {
-            if(event.type != TouchEvent::Type::Begin) return;
-            _startEvent = event;
-            _tapTimer.start(300, now);
-            _dragOrHoldTimer.start(200, now);
-            _holdTimer.start(800, now);
-            _state = Stroke;
-            Gesture t;
-            t.type = Gestures::TouchDown;
-            t.touchDown = {
-                .x = resLerp(event.x, _resolutionX, _expectedX),
-                .y = resLerp(event.y, _resolutionY, _expectedY)
-            };
-            _recognizer.pushGesture(t);
+            if(event.type == TouchEvent::Type::Begin) {
+                if(!_idleActive) {    
+                    _startEvent = event;
+                    _tapTimer.start(_tapTimeout, now);
+                    _dragOrHoldTimer.start(_dragThreshold, now);
+                    _holdTimer.start(_holdThreshold, now);
+                    
+                    _idleActive = true;
+                    _idleToStroke = now;
+                }
+            } else {
+                if(_idleActive) {
+                    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - _idleToStroke);
+                    if(diff > idleThreshold) {
+                        _recognizer._state = GestureRecognizer::RecognizerState::OneFingerOngoing;
+
+                        _state = Stroke;
+                        
+                        // std::cout << "[OFS] ------- td -------" << std::endl;
+                        Gesture t;
+                        t.type = Gestures::TouchDown;
+                        t.touchDown = {
+                            .x = lerp(_lastEvent.x, _driverWidth, _outputWidth),
+                            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
+                        };
+                        _recognizer.pushGesture(t);
+                    }
+                }
+            }
         } break;
         case(Stroke): {
             if(event.type != TouchEvent::Type::End && event.id == _startEvent.id) {
@@ -137,13 +85,13 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                         } 
                     } else {
                         float dist = distance(event, _startEvent);
-                        if(dist >= 10) {
+                        if(dist >= 2) {
                             Gesture swipe;
                             swipe.type = Gestures::Swipe;
                             swipe.swipe = {
                                 .state = GestureState::Start,
-                                .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                                .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                                .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
+                                .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
                                 .dx = 0,
                                 .dy = 0
                             }; 
@@ -153,7 +101,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     }
                 }
             } else if(event.type == TouchEvent::Type::Begin && event.id != _startEvent.id) {
-                _doubleTapTimer.start(200, now);
+                _doubleTapTimer.start(_doubleTapTimeout, now);
                 _state = DoubleTapPossible;
             }
         } break;
@@ -171,8 +119,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     drag.type = Gestures::Drag;
                     drag.drag = {
                         .state = GestureState::Start,
-                        .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                        .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                        .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
+                        .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
                         .dx = 0,
                         .dy = 0
                     };
@@ -184,14 +132,14 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
         case(DragOngoing): {
             float dist = distance(event, _lastEvent);
             if(event.type == TouchEvent::Type::Move) {
-                int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
-                int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
+                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
+                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
                 Gesture drag;
                 drag.type = Gestures::Drag;
                 drag.drag  = {
                     .state = GestureState::Move,
-                    .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .x = lerp(event.x, _driverWidth, _outputWidth),
+                    .y = lerp(event.y, _driverHeight, _outputHeight),
                     .dx = dx,
                     .dy = dy
                 };
@@ -267,8 +215,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                         circ.type = Gestures::DoubleTapCircular;
                         circ.dtCircular = {
                             .state = GestureState::Start,
-                            .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                            .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                            .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
+                            .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
                             .dx = 0,
                             .dy = 0,
                             .angle = 0.f,
@@ -284,8 +232,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                         swipe.type = Gestures::DoubleTapSwipe;
                         swipe.dtSwipe = {
                             .state = GestureState::Start,
-                            .x = resLerp(_startEvent.x, _resolutionX, _expectedX),
-                            .y = resLerp(_startEvent.y, _resolutionY, _expectedY),
+                            .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
+                            .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
                             .dx = 0,
                             .dy = 0
                         };
@@ -301,14 +249,14 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
         case(DoubleTapSwipeOngoing): {
             float dist = distance(event, _lastEvent);
             if(event.type == TouchEvent::Type::Move && dist >= 2) {
-                int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
-                int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
+                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
+                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
                 Gesture swipe;
                 swipe.type = Gestures::DoubleTapSwipe;
                 swipe.dtSwipe = {
                     .state = GestureState::Move,
-                    .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .x = lerp(event.x, _driverWidth, _outputWidth),
+                    .y = lerp(event.y, _driverHeight, _outputHeight),
                     .dx = dx,
                     .dy = dy
                 };
@@ -347,8 +295,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                 circ.type = Gestures::DoubleTapCircular;
                 circ.dtCircular = {
                     .state = GestureState::Move,
-                    .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .x = lerp(event.x, _driverWidth, _outputWidth),
+                    .y = lerp(event.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0,
                     .angle = angleCurr,
@@ -362,14 +310,14 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
         case(SwipeOngoing): {
             float dist = distance(event, _lastEvent);
             if(event.type == TouchEvent::Type::Move && dist > 5) {
-                int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
-                int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
+                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
+                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
                 Gesture swipe;
                 swipe.type = Gestures::Swipe;
                 swipe.swipe = {
                     .state = GestureState::Move,
-                    .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .x = lerp(event.x, _driverWidth, _outputWidth),
+                    .y = lerp(event.y, _driverHeight, _outputHeight),
                     .dx = dx,
                     .dy = dy
                 };
@@ -379,8 +327,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                 swipe.type = Gestures::Swipe;
                 swipe.swipe = {
                     .state = GestureState::End,
-                    .x = resLerp(event.x, _resolutionX, _expectedX),
-                    .y = resLerp(event.y, _resolutionY, _expectedY),
+                    .x = lerp(event.x, _driverWidth, _outputWidth),
+                    .y = lerp(event.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0
                 };
@@ -401,15 +349,15 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
             }
 
             if(event.type == TouchEvent::Type::Move) {
-                int dx = resLerp(event.x, _resolutionX, _expectedX) - resLerp(_lastEvent.x, _resolutionX, _expectedX);
-                int dy = resLerp(event.y, _resolutionY, _expectedY) - resLerp(_lastEvent.y, _resolutionY, _expectedY);
+                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
+                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
                 
                 Gesture hold;
                 hold.type = Gestures::Hold;
                 hold.hold = {
                     .state = GestureState::Move,
-                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                     .dx = dx,
                     .dy = dy,
                 };
@@ -418,44 +366,54 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
         } break;
     }
     _lastEvent = event;
-    if(_eventsHistory.size() >= 35) {
+    if(_eventsHistory.size() >= _maxHistoryLength) {
         _eventsHistory.pop_front();
     }
     _eventsHistory.push_back(event);
 
 }
 
-int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
-    // TouchEvent & event = touches[0];
-    timer::timePoint now = std::chrono::steady_clock::now();
-    // std::cout << "resetOrProc: ";
-    // printState(_state);
-
+void OneFingerFSM::resetOrProcess() {
+    TimePoint now = std::chrono::steady_clock::now();
+#if DEBUG_PRINT == 1
+    printState(_state, false);
+#endif
     switch(_state) {
         case(Idle): {
             //do nothing
-            reset();
-            return 0;
+            if(_idleActive) {
+                if(std::chrono::duration_cast<std::chrono::milliseconds>(now - _idleToStroke) > idleThreshold) {
+                    _recognizer._state = GestureRecognizer::RecognizerState::OneFingerOngoing;
+
+                    _state = Stroke;
+
+                    Gesture t;
+                    t.type = Gestures::TouchDown;
+                    t.touchDown = {
+                        .x = lerp(_lastEvent.x, _driverWidth, _outputWidth),
+                        .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
+                    };
+                    _recognizer.pushGesture(t);
+                }
+            }
         } break;
         case(Stroke): {
-            // if(touches.size() == 0) {
                 if(_lastEvent.type == TouchEvent::Type::Begin) {
                     if(_holdTimer.active() && _holdTimer.expired(now)) {
                         _state = Hold;
                     }
                 } else if(_lastEvent.type == TouchEvent::Type::End) {
-                    if(_tapTimer.active() && _tapTimer.expired(now)) {
+                    if(_tapTimer.active() && _tapTimer.expired(now)) { //must be expired
                         Gesture tap;
                         tap.type = Gestures::Tap;
                         tap.tap = {
-                            .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                            .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
+                            .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
                         };
                         _recognizer.pushGesture(tap);
                         reset();
                     }
                 }
-            // }
         } break;
         case(DragOrHold): {
             // ???
@@ -467,8 +425,8 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                 drag.type = Gestures::Drag;
                 drag.drag = {
                     .state = GestureState::End,
-                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0
                 };
@@ -483,8 +441,8 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                     Gesture dtap;
                     dtap.type = Gestures::DoubleTap;
                     dtap.doubleTap = {
-                        .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                        .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
+                        .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                        .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
                     };
                     _recognizer.pushGesture(dtap);
                     
@@ -498,8 +456,8 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                 swipe.type = Gestures::DoubleTapSwipe;
                 swipe.dtSwipe = {
                     .state = GestureState::End,
-                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0
                 };
@@ -514,8 +472,8 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                 circ.type = Gestures::DoubleTapCircular;
                 circ.dtCircular = {
                     .state = GestureState::End,
-                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0,
                     .angle = 0.f,
@@ -534,8 +492,8 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                 swipe.type = Gestures::Swipe;
                 swipe.swipe = {
                     .state = GestureState::End,
-                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0
                 };
@@ -554,8 +512,8 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                 hold.type = Gestures::Hold;
                 hold.hold = {
                     .state = GestureState::Start,
-                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0,
                 };
@@ -573,8 +531,8 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
                 hold.type = Gestures::Hold;
                 hold.hold = {
                     .state = GestureState::End,
-                    .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-                    .y = resLerp(_lastEvent.y, _resolutionY, _expectedY),
+                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0,
                 };
@@ -583,11 +541,13 @@ int OneFingerFSM::resetOrProcess(/*std::vector<TouchEvent> & touches*/) {
             }
         } break;
     }
-
-    return 1;
 }
 
 void OneFingerFSM::reset() {
+#if DEBUG_PRINT == 1
+    std::cout << "[OFS] reset" << std::endl;
+#endif
+
     _doubleTapHelper = Undetected;
     _predictions = 0;
     _tapTimer.stop();
@@ -595,35 +555,41 @@ void OneFingerFSM::reset() {
     _dragOrHoldTimer.stop();
     _holdTimer.stop();
     if(_state != Idle) {
+#if DEBUG_PRINT == 1
+        std::cout << "[OFS] ------- tu -------" << std::endl;
+#endif
         Gesture touch;
         touch.type = Gestures::TouchUp;
         touch.touchUp = {
-            .x = resLerp(_lastEvent.x, _resolutionX, _expectedX), 
-            .y = resLerp(_lastEvent.y, _resolutionY, _expectedY)
+            .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
+            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
         };
         _recognizer.pushGesture(touch);
     }
     _state = Idle;
+    _idleActive = false;
+
+    _recognizer.reset();
 }
 
-void OneFingerFSM::timer::start(int timeout, timePoint & now) {
-    _active = true;  
-    _timeout = timeout;  
-    _startTime = now;
-}
-
-void OneFingerFSM::timer::stop() {
-    _active = false;
-    _timeout = 0;
-}
-
-bool OneFingerFSM::timer::expired(timePoint & now) {
-    uint dur = std::chrono::duration_cast<std::chrono::milliseconds>(now - _startTime).count();
-    if(dur >= _timeout){  
-        return true;  
-    } else {  
-        return false;  
-    }  
+void OneFingerFSM::printState(state state, bool proc) {
+    std::string text = proc ? "[OFS proc] " : "[OFS reso] ";
+    switch(state) {
+        case(Idle): { 
+            if(!_idleActive) text.append("Idle NA"); 
+            else text.append("Idle A"); 
+        } break;
+        case(Stroke): text.append("Stroke"); break;
+        case(DragOrHold): text.append("DragOrHold"); break;
+        case(DragOngoing): text.append("DragOngoing"); break;
+        case(DoubleTapPossible): text.append("DoubleTapPossible"); break;
+        case(DoubleTapSwipeOngoing): text.append("DoubleTapSwipeOngoing"); break;
+        case(DoubleTapCircularOngoing): text.append("DoubleTapCircularOngoing"); break;
+        case(SwipeOngoing): text.append("SwipeOngoing"); break;
+        case(Hold): text.append("Hold"); break;
+        case(HoldOngoing): text.append("HoldOngoing"); break;
+    }
+    std::cout << text << std::endl;
 }
 
 }//namespace GestLib

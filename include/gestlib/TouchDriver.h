@@ -7,104 +7,31 @@
 #include <vector>
 #include <deque>
 #include <chrono>
+#include <linux/input.h>
 
 #include <fstream>
 #include "defines.h"
-
-class libevdev;
 
 namespace GestLib {
 
 class TouchDriver {
     public:
-    TouchDriver(int maxFingers = 5);
+    TouchDriver();
     ~TouchDriver();
 
-    bool init();
-    bool shutdown();
-    void printCapabilities();
+    //bool init(bool pickFirstDev, std::string path = "");
+    // virtual bool shutdown() = 0;
 
-    std::vector<TouchEvent> getEvents();
+    virtual std::vector<TouchEvent> getEvents() = 0;
 
-    const std::string & uniq() const { return _uniq; }
-    const std::string & path() const { return _path; }
-    const int resolutionX() const { return _resX; }
-    const int resolutionY() const { return _resY; }   
+    int width() const { return _width; }
+    int height() const { return _height; }   
+    
+    virtual int fd() const = 0; //ugh... don't like this move
 
-    int fd() const { return _fd; } //ugh... don't like this move
-
-    private:
-
-    //maximal possible simultanious finger touches
-    int _maxFingers;
-
-    //touchscreen things
-    int _fd;
-    libevdev * _dev;
-
-    std::string _uniq;
-    std::string _path;
-    int _resX;
-    int _resY;
-
-    struct RawFinger {
-        int trackId = -1;
-        bool active = false;
-        int touchMajor = 0;
-        int touchMinor = 0;
-        int x = 0;
-        int y = 0;
-        std::chrono::time_point<std::chrono::steady_clock> lastAction;
-    };
-
-    int _currentSlot;
-    std::vector<RawFinger> _raw;
-
-    enum class FingerState {
-        Probation,
-        Active,
-        Lost
-    };
-
-    struct LogicalFinger {
-        int logicalId;
-        int lastTrackedId;
-        FingerState state;
-
-        int x;
-        int y;
-        int lastX;
-        int lastY;
-        int activeCount;
-        bool updatedThisFrame;
-        bool markToDelete;
-        std::chrono::time_point<std::chrono::steady_clock> lastAction;
-    };
-
-    struct DebouncedFinger {
-        int id;
-        int lastTrackedId;
-        FingerState state;
-
-        int x;
-        int y;
-        int prevX;
-        int prevY;
-        int noiseDebounce;
-
-        bool updatedThisFrame;
-        bool markToDelete;
-        std::chrono::time_point<std::chrono::steady_clock> lastActive;
-    };
-
-    std::vector<LogicalFinger> _logicalFingers;
-    std::vector<DebouncedFinger> _debounced;
-    std::vector<RawFinger> _currentFrameFingers;
-    int _internalIdCounter;
-
-    bool readData(const std::chrono::time_point<std::chrono::steady_clock> &now);
-    std::vector<TouchEvent> process(bool newData, const std::chrono::time_point<std::chrono::steady_clock> &now);
-    void probablyMove(DebouncedFinger & finger, std::vector<TouchEvent> & ret);
+    protected:
+    int _width;
+    int _height;
 };
 
 }

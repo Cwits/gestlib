@@ -8,6 +8,7 @@
 #include <deque>
 #include <chrono>
 #include <linux/input.h>
+#include <mutex>
 
 #include <SDL2/SDL.h>
 #include "gestlib/TouchDriver.h"
@@ -57,6 +58,7 @@ class FakeSDLDriver : public TouchDriver {
         TwoTouchOpposite,
         TwoTouchSame
     }; 
+    Mode _mode;
     
     std::vector<TouchEvent> _currentFrameEvents;
 

@@ -5,14 +5,18 @@
 #include "gestlib/drivers/FakeSDL.h"
 
 #include <sys/eventfd.h>
+#include <unistd.h> //close(fd)
+#include <fcntl.h> //open() O_RDONLY
 #include <iostream>
+#include <chrono>
 
 namespace GestLib {
 
-FakeSDLDriver::FakeSDLDriver(const FakeSDLDriverConfig) :
+FakeSDLDriver::FakeSDLDriver(const FakeSDLDriverConfig cfg) :
     _cfg(cfg)
 {
-
+    _width = 1920;
+    _height = 1080;
 }
 
 FakeSDLDriver::~FakeSDLDriver() {
@@ -76,9 +80,9 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                         .type = TouchEvent::Type::Begin,
                         .x = _lastX,
                         .y = _lastY,
-                        .time = std::chrono::steady_clock::now();
+                        .time = std::chrono::steady_clock::now()
                     });
-                    _gestureOnGoing = true;
+                    _gestureOngoing = true;
                 } else if(code == SDL_SCANCODE_B) {
                     //two touches opposite
                     //two touches mode opposite move(for zoom)
@@ -89,15 +93,15 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
             } break;
             case(SDL_KEYUP): {
                 SDL_Scancode &code = ev.key.keysym.scancode;
-                if(CODE == SDL_SCANCODE_C) {
+                if(code == SDL_SCANCODE_C) {
                     //disable touch
-                    _gestureOngiong = false;
+                    _gestureOngoing = false;
                     ret.push_back({
                         .id = _touchId++,
                         .type = TouchEvent::Type::End,
                         .x = _lastX,
                         .y = _lastY,
-                        .time = std::chrono::steady_clock::now();
+                        .time = std::chrono::steady_clock::now()
                     });
                 } else if(code == SDL_SCANCODE_B) {
 
@@ -112,7 +116,7 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                 _lastX = ev.motion.x;
                 _lastY = ev.motion.y;
 
-                if(_gestureOnGoing) {
+                if(_gestureOngoing) {
                     switch(_mode) {
                         case(Mode::OneTouch): {
                             ret.push_back({
@@ -120,7 +124,7 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                                 .type = TouchEvent::Type::Move,
                                 .x = _lastX,
                                 .y = _lastY,
-                                .time = std::chrono::steady_clock::now();
+                                .time = std::chrono::steady_clock::now(),
                             });
                         } break;
                         case(Mode::TwoTouchOpposite): {
@@ -143,11 +147,12 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
 
             } break;
             default:
-                std::cerr << "Unrelevant event" << std::endl;
+                // std::cerr << "Unrelevant event" << std::endl;
             break;
         }
     }
 
+    _inEvents.clear();
     return ret;
 }
 

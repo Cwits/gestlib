@@ -12,6 +12,7 @@
 #include <chrono>
 
 #include "gestlib/drivers/Generic.h"
+#include "gestlib/drivers/FakeSDL.h"
 
 //requires sudo apt install libsdl2-ttf-dev
 SDL_Window * window;
@@ -47,9 +48,11 @@ int main() {
 
     bool running = true;
 
-    GestLib::GenericDriverConfig cfg{};
-    GestLib::GenericDriver _dri(cfg);
-    _dri.init(true);
+    // GestLib::GenericDriverConfig cfg{};
+    // GestLib::GenericDriver _dri(cfg);
+    // _dri.init(true);
+    GestLib::FakeSDLDriver _dri(GestLib::FakeSDLDriverConfig{});
+    _dri.init();
 
     while (running) {
         SDL_Event event;
@@ -65,6 +68,7 @@ int main() {
                     }
                 } break;
             }
+            _dri.feedSDLEvent(event);
         }
 
         // Очистка экрана

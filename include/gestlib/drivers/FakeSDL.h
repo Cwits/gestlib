@@ -34,12 +34,29 @@ class FakeSDLDriver : public TouchDriver {
 
     int fd() const override { return _fd; } //ugh... don't like this move
 
+    std::string helpString() const;
+
     private:
-    GenericDriverConfig _cfg;
+    FakeSDLDriverConfig _cfg;
     int _fd;
 
     std::mutex _mutex;
     std::deque<SDL_Event> _inEvents;
+    std::vector<TouchEvent> parseInEvents();
+
+    int _touchId = 1;
+
+    int _lastX;
+    int _lastY;
+    bool _gestureOngoing;
+    int _scndX;
+    int _scndY;
+
+    enum class Mode {
+        OneTouch,
+        TwoTouchOpposite,
+        TwoTouchSame
+    }; 
     
     std::vector<TouchEvent> _currentFrameEvents;
 

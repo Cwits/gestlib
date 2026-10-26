@@ -26,6 +26,7 @@ find_package(SDL2_ttf REQUIRED)
 
 
 set(SOURCES src/drivers/Generic.cpp
+            src/drivers/FakeSDL.cpp
             src/TouchDriver.cpp
             src/GestureRecognizer.cpp
             src/OneFingerFSM.cpp

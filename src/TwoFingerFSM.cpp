@@ -59,6 +59,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
             te1 = &_lastTouches.first;
             te2 = &touches[0];
         } else {
+            std::cout << "Lost both touches" << std::endl;
             //idk yet what to do... i guess reset?
         }
     } else if(touches.size() == 2) {
@@ -97,7 +98,8 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                         t.type = Gestures::TouchDown;
                         t.touchDown = {
                             .x = lerp(dx, _driverWidth, _outputWidth),
-                            .y = lerp(dy, _driverHeight, _outputHeight)
+                            .y = lerp(dy, _driverHeight, _outputHeight),
+                            .touchId = -1
                         };
                         _recognizer.pushGesture(t);
                     }
@@ -304,7 +306,8 @@ void TwoFingerFSM::resetOrProcess() {
                     t.type = Gestures::TouchDown;
                     t.touchDown = {
                         .x = lerp(dx, _driverWidth, _outputWidth),
-                        .y = lerp(dy, _driverHeight, _outputHeight)
+                        .y = lerp(dy, _driverHeight, _outputHeight),
+                        .touchId = -1
                     };
                     _recognizer.pushGesture(t);
                 }
@@ -356,7 +359,8 @@ void TwoFingerFSM::reset() {
         t.type = Gestures::TouchUp;
         t.touchUp = {
             .x = lerp(dx, _driverWidth, _outputWidth),
-            .y = lerp(dy, _driverHeight, _outputHeight)
+            .y = lerp(dy, _driverHeight, _outputHeight),
+            .touchId = -1
         };
         _recognizer.pushGesture(t);
     }

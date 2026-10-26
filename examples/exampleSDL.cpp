@@ -48,7 +48,13 @@ struct JoystickScene : public SceneBase {
     void handleGesture(const GestLib::Gesture &) override;
     void drawScene() override;
     
+    struct Joystick : public GestLib::TouchCapture {
+        void onMove(const GestLib::TouchEvent &touch) override;
+        void onCancle() override;
+    };
 
+    Joystick joystick;
+    GestLib::GestureRecognizer *rec = nullptr;
 };
 
 struct HoldAndDragScene : public SceneBase {
@@ -89,6 +95,7 @@ std::uniform_int_distribution<unsigned char> colorDist;
 
 ZoomScene zoomScene;
 HoldAndDragScene hadScene;
+JoystickScene joyScene;
 
 int main() {
     if(!initSDL(1920, 1080)) {
@@ -109,6 +116,7 @@ int main() {
         return 1;
     }
 
+    // joyScene->rec = &recn;
     recn.start();
     
     int fps = 1 / 60.f * 1000;
@@ -361,6 +369,7 @@ void HoldAndDragScene::handleGesture(const GestLib::Gesture &g) {
     switch(g.type) {
         case(GestLib::Gestures::TouchDown): {
             const GestLib::TouchDownEvent &td = g.touchDown;
+            std::cout << "id: " << td.touchId << std::endl;
             
             bool notFound = true;
             for(auto &b : boxes) {
@@ -454,11 +463,32 @@ bool HoldAndDragScene::Box::within(int _x, int _y) {
     return t1 && t2 && t3 && t4;
 }
 
-void JoystickScene::handleGesture(const GestLib::Gesture &) {
+void JoystickScene::handleGesture(const GestLib::Gesture &g) {
+    switch(g.type) {
+        case(GestLib::Gestures::TouchDown): {
+            const GestLib::TouchDownEvent &td = g.touchDown;
 
+            if(td.touchId != -1) {}
+                // rec->registerTouchCapture(&joystick, td.touchId);
+        } break;
+        case(GestLib::Gestures::TouchUp): {
+            const GestLib::TouchUpEvent &tu = g.touchUp;
+
+            if(tu.touchId != -1) {}
+                // rec->unregisterTouchCapture(&joystick, tu.touchId);
+        } break;
+    }
 }
 
 void JoystickScene::drawScene() {
 
+}
+
+void JoystickScene::Joystick::onMove(const GestLib::TouchEvent &touch) {
+    
+}
+
+void JoystickScene::Joystick::onCancle() {
+    
 }
     

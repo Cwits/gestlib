@@ -127,11 +127,13 @@ struct RotateGesture {
 struct TouchDownEvent {
     int x;
     int y;
+    int touchId;
 };
 
 struct TouchUpEvent {
     int x;
     int y;
+    int touchId;
 };
 
 struct Gesture {
@@ -162,8 +164,8 @@ rest of events will be processed as usual
 must be one finger only?
 */
 struct TouchCapture {
-    virtual bool onMove(const TouchEvent &touch) = 0;
-    virtual bool onCancle() = 0;
+    virtual void onMove(const TouchEvent &touch) = 0;
+    virtual void onCancle() = 0;
 
     private:
     int CapturedEventId = -1;

@@ -27,8 +27,8 @@ class GestureRecognizer {
 
     std::vector<Gesture> fetchGestures();
 
-    // void registerTouchCapture(TouchCapture *tc); //must be threadsafe
-    // void unregisterTouchCapture(TouchCapture *tc); //must be threadsafe
+    // void registerTouchCapture(TouchCapture *tc, int touchId); //must be threadsafe
+    // void unregisterTouchCapture(TouchCapture *tc, int touchId); //must be threadsafe
 
     private:
     GestLib::RecognizerConfig _cfg;
@@ -58,6 +58,13 @@ class GestureRecognizer {
     void pushGesture(Gesture gest);
     friend class OneFingerFSM;
     friend class TwoFingerFSM;
+
+
+    // struct CapturedTouch {
+    //     TouchCapture *tc;
+    //     int touchId;
+    // };
+    // std::vector<CapturedTouch> _captured;
 };
 
 }

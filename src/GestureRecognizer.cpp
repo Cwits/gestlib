@@ -118,6 +118,15 @@ bool GestureRecognizer::start() {
             // std::cout << "[GR] Touch count " << touches.size() << std::endl;
 #endif
 
+            /* 
+                for(touch : touches) {
+                    if(!containsAnyOf(_captured)) continue;
+                    _captured->onMove(touch);
+
+                    touches.erase(touch);
+                }
+            */
+
             switch(_state) {
                 case(RecognizerState::Idle): {
                     if(size == 0) {
@@ -184,5 +193,13 @@ std::vector<Gesture> GestureRecognizer::fetchGestures() {
     }
     return ret;
 }
+
+// void GestureRecognizer::registerTouchCapture(TouchCapture *tc, int touchId) {
+    // lock l(mutex)
+    // _captured.push_back({.tc = tc, .touchId = touchId});
+//}
+// void GestureRecognizer::unregisterTouchCapture(TouchCapture *tc, int touchId) {
+    // _captured.erase(...);
+//} 
 
 }//namespace

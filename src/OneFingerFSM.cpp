@@ -68,7 +68,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                         t.type = Gestures::TouchDown;
                         t.touchDown = {
                             .x = lerp(_lastEvent.x, _driverWidth, _outputWidth),
-                            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
+                            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
+                            .touchId = _lastEvent.id
                         };
                         _recognizer.pushGesture(t);
                     }
@@ -391,7 +392,8 @@ void OneFingerFSM::resetOrProcess() {
                     t.type = Gestures::TouchDown;
                     t.touchDown = {
                         .x = lerp(_lastEvent.x, _driverWidth, _outputWidth),
-                        .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
+                        .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
+                        .touchId = _lastEvent.id
                     };
                     _recognizer.pushGesture(t);
                 }
@@ -562,7 +564,8 @@ void OneFingerFSM::reset() {
         touch.type = Gestures::TouchUp;
         touch.touchUp = {
             .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
+            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
+            .touchId = _lastEvent.id
         };
         _recognizer.pushGesture(touch);
     }

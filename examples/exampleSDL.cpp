@@ -107,14 +107,14 @@ int main() {
     rng = std::mt19937(std::random_device{}());
     colorDist = std::uniform_int_distribution<unsigned char>(100, 255);
 
-    // GestLib::GenericDriverConfig dcfg{};
-    // GestLib::GenericDriver driver(dcfg);
-    // driver.init(true);
+     GestLib::GenericDriverConfig dcfg{};
+     GestLib::GenericDriver driver(dcfg);
+     driver.init(true);
 
     
-    GestLib::FakeSDLDriver driver(GestLib::FakeSDLDriverConfig{});
-    driver.init();
-    std::cout << driver.helpString() << std::endl;
+//    GestLib::FakeSDLDriver driver(GestLib::FakeSDLDriverConfig{});
+//    driver.init();
+//    std::cout << driver.helpString() << std::endl;
 
     GestLib::RecognizerConfig cfg{};
     GestLib::GestureRecognizer recn(cfg);
@@ -145,7 +145,7 @@ int main() {
                     }
                 } break;
             }
-            driver.feedSDLEvent(event);
+    //        driver.feedSDLEvent(event);
         }
 
         // Очистка экрана

@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <deque>
 
-#define DEBUG_PRINT 1
+#define DEBUG_PRINT 0
 
 namespace GestLib {
 

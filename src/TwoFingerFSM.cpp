@@ -64,6 +64,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
         } else {
             std::cout << "Lost both touches" << std::endl;
             reset();
+	    return;
             //idk yet what to do... i guess reset?
         }
     } else if(touches.size() == 2) {
@@ -125,7 +126,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                 float dy = 0.0f;
                 int lessThanMin = 0;
                 bool skipIteration = false;
-                const float minValue = 20.0f;
+                const float minValue = 16.0f;
 
                 for(int i=3; i>0; --i) {
                     Event &ev = _eventHistory[_eventHistory.size()-i];

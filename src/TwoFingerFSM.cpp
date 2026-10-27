@@ -94,8 +94,8 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
 
                         _state = state::Stroke;
 
-                        int dx = std::abs(_lastTouches.first.x - _lastTouches.second.x);
-                        int dy = std::abs(_lastTouches.first.y - _lastTouches.second.y);
+                        int dx = (_lastTouches.first.x + _lastTouches.second.x) / 2;
+                        int dy = (_lastTouches.first.y + _lastTouches.second.y) / 2;
 #if DEBUG_PRINT == 1
                         std::cout << "[TFS] ------- td -------" << std::endl;
 #endif
@@ -308,8 +308,8 @@ void TwoFingerFSM::resetOrProcess() {
 
                     _state = state::Stroke;
 
-                    int dx = std::abs(_lastTouches.first.x - _lastTouches.second.x);
-                    int dy = std::abs(_lastTouches.first.y - _lastTouches.second.y);
+                    int dx = (_lastTouches.first.x + _lastTouches.second.x) / 2;
+                    int dy = (_lastTouches.first.y + _lastTouches.second.y) / 2;
 
 #if DEBUG_PRINT == 1
                     std::cerr << "[TFS] ----- td ------" << std::endl;
@@ -364,8 +364,8 @@ void TwoFingerFSM::reset() {
 #endif
 
     if(_state != state::Idle) {
-        int dx = std::abs(_lastTouches.first.x - _lastTouches.second.x);
-        int dy = std::abs(_lastTouches.first.y - _lastTouches.second.y);
+        int dx = (_lastTouches.first.x + _lastTouches.second.x) / 2;
+        int dy = (_lastTouches.first.y + _lastTouches.second.y) / 2;
 
 #if DEBUG_PRINT == 1        
         std::cout << "[TFS] ------- tu -------" << std::endl;

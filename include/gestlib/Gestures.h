@@ -18,13 +18,14 @@ enum class Gestures {
     Drag,           //+
     DoubleTap,      //+
     DoubleTapSwipe, //+
+    //Double Tap Circular To Be Removed!!!
     DoubleTapCircular, //+ in code but not working - do i need this one?
     //two fingers
-    Zoom,
+    Zoom, //+
     Rotate,
     TwoFingerTap, //+
     TwoFingerDoubleTap,
-    TwoFingerSwipe,
+    TwoFingerSwipe, //+
     //three fingers
     ThreeFingerTap,
     ThreeFingerSwipe

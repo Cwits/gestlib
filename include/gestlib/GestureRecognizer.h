@@ -16,6 +16,15 @@
 
 namespace GestLib {
 
+struct RecognizerConfig {
+    int idleTimeout = 300; //in ms
+    int outputWidth = 1920;
+    int outputHeight = 1080;
+
+    OneFingerFSMConfig oneCfg;
+    TwoFingerFSMConfig twoCfg;
+};
+
 class GestureRecognizer {
     public:
     GestureRecognizer(GestLib::RecognizerConfig);

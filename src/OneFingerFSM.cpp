@@ -15,7 +15,10 @@ static const auto idleThreshold = std::chrono::milliseconds(20);
 
 namespace GestLib {
 
-OneFingerFSM::OneFingerFSM(GestureRecognizer & rec, OneFingerFSMConfig cfg) : _recognizer(rec) {
+OneFingerFSM::OneFingerFSM(GestureRecognizer & rec, OneFingerFSMConfig cfg) : 
+    _cfg(cfg), 
+    _recognizer(rec) 
+{
     _tapTimeout = cfg.tapTimeout;
     _dragThreshold = cfg.dragThreshold;
     _holdThreshold = cfg.holdThreshold;
@@ -71,6 +74,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                             .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                             .touchId = _lastEvent.id
                         };
+                        _gestureToLost.start(_cfg.gestureToLost, now);
                         _recognizer.pushGesture(t);
                     }
                 }
@@ -96,6 +100,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                                 .dx = 0,
                                 .dy = 0
                             }; 
+                            _gestureToLost.update(now);
                             _recognizer.pushGesture(swipe);
                             _state = SwipeOngoing;
                         }
@@ -108,7 +113,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
         } break;
         case(DragOrHold): {
             if(event.id != _startEvent.id) {
-                reset();
+                if(_gestureToLost.active() && _gestureToLost.expired(now))
+                    reset();
             }
             
             if(event.type == TouchEvent::Type::Move) {
@@ -125,6 +131,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                         .dx = 0,
                         .dy = 0
                     };
+                    _gestureToLost.update(now);
                     _recognizer.pushGesture(drag);
                     _state = DragOngoing;
                 }   
@@ -144,6 +151,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .dx = dx,
                     .dy = dy
                 };
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(drag);
             }
         } break;
@@ -225,6 +233,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                             .radius = 0.f,
                             .speed = 0.f
                         };
+                        _gestureToLost.update(now);
                         _recognizer.pushGesture(circ);
 
                         _state = DoubleTapCircularOngoing;
@@ -238,6 +247,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                             .dx = 0,
                             .dy = 0
                         };
+                        _gestureToLost.update(now);
                         _recognizer.pushGesture(swipe);
 
                         _state = DoubleTapSwipeOngoing;
@@ -261,6 +271,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .dx = dx,
                     .dy = dy
                 };
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(swipe);
 
             }
@@ -305,6 +316,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .radius = radius,
                     .speed = speed
                 };
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(circ);
             }
         } break;
@@ -322,6 +334,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .dx = dx,
                     .dy = dy
                 };
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(swipe);
             } else if(event.type == TouchEvent::Type::End) {
                 Gesture swipe;
@@ -332,7 +345,8 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .y = lerp(event.y, _driverHeight, _outputHeight),
                     .dx = 0,
                     .dy = 0
-                };
+                };  
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(swipe);
                 
                 reset();
@@ -341,12 +355,14 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
         case(Hold): {
             //do nothing
             if(event.id != _startEvent.id) {
-                reset();
+                if(_gestureToLost.active() && _gestureToLost.expired(now))
+                    reset();
             }
         } break;
         case(HoldOngoing): {
             if(event.id != _startEvent.id) {
-                reset();
+                if(_gestureToLost.active() && _gestureToLost.expired(now))
+                    reset();
             }
 
             if(event.type == TouchEvent::Type::Move) {
@@ -362,6 +378,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .dx = dx,
                     .dy = dy,
                 };
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(hold);
             }
         } break;
@@ -395,6 +412,7 @@ void OneFingerFSM::resetOrProcess() {
                         .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
                         .touchId = _lastEvent.id
                     };
+                    _gestureToLost.start(_cfg.gestureToLost, now);
                     _recognizer.pushGesture(t);
                 }
             }
@@ -557,6 +575,7 @@ void OneFingerFSM::reset() {
     _doubleTapTimer.stop();
     _dragOrHoldTimer.stop();
     _holdTimer.stop();
+    _gestureToLost.stop();
     if(_state != Idle) {
 #if DEBUG_PRINT == 1
         std::cout << "[OFS] ------- tu -------" << std::endl;

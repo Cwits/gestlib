@@ -19,7 +19,7 @@ GestureRecognizer::GestureRecognizer(GestLib::RecognizerConfig cfg) :
     _cfg(cfg),    
     _dri(nullptr), 
     _ofs(*this, cfg.oneCfg),
-    _tfs(*this)
+    _tfs(*this, cfg.twoCfg)
 {
     _running = false;
     _gesturesQueue.clear();

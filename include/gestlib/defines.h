@@ -47,27 +47,6 @@ struct TouchEvent {
     }
 };
 
-struct OneFingerFSMConfig {
-    int tapTimeout = 300;           //ms can do 200-250?
-    int dragThreshold = 200;        //ms
-    int holdThreshold = 800;        //ms
-    int doubleTapTimeout = 200;     //ms
-    int maxHistoryLength = 35;      //element count
-};
-
-struct TwoFingerFSMConfig {
-
-};
-
-struct RecognizerConfig {
-    int idleTimeout = 300; //in ms
-    int outputWidth = 1920;
-    int outputHeight = 1080;
-
-    OneFingerFSMConfig oneCfg;
-    TwoFingerFSMConfig twoCfg;
-};
-
 struct DeviceDesc {
     std::string path;
     std::string device;

@@ -10,6 +10,16 @@
 namespace GestLib {
 
 class GestureRecognizer;
+
+struct OneFingerFSMConfig {
+    int tapTimeout          = 300;  //ms can do 200-250?
+    int dragThreshold       = 200;  //ms
+    int holdThreshold       = 800;  //ms
+    int doubleTapTimeout    = 200;  //ms
+    int maxHistoryLength    = 35;   //element count
+    int gestureToLost       = 60;   //ms
+};
+
 class OneFingerFSM {
     public:
     OneFingerFSM(GestureRecognizer & rec, OneFingerFSMConfig cfg);
@@ -22,7 +32,7 @@ class OneFingerFSM {
     void reset();
 
     private:
-
+    OneFingerFSMConfig _cfg;
     int _driverWidth;
     int _driverHeight;
     int _outputWidth;
@@ -67,6 +77,7 @@ class OneFingerFSM {
     timer _doubleTapTimer;
     timer _dragOrHoldTimer;
     timer _holdTimer;
+    timer _gestureToLost;
     
     TimePoint _idleToStroke;
     bool _idleActive;

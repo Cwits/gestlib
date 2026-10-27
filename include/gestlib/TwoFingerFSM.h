@@ -12,8 +12,12 @@ namespace GestLib {
 
 struct GestureRecognizer;
 
+struct TwoFingerFSMConfig {
+    int gestureToLost = 60;
+};
+
 struct TwoFingerFSM {
-    TwoFingerFSM(GestureRecognizer &rec);
+    TwoFingerFSM(GestureRecognizer &rec, TwoFingerFSMConfig cfg);
     ~TwoFingerFSM();
 
     bool init(int driverWidth, int driverHeight);
@@ -24,6 +28,7 @@ struct TwoFingerFSM {
     void reset();
 
     private:
+    TwoFingerFSMConfig _cfg;
     int _driverWidth;
     int _driverHeight;
 
@@ -44,13 +49,6 @@ struct TwoFingerFSM {
     };
 
     state _state;
-
-    // enum class TouchState {
-    //     Begin,
-    //     Move,
-    //     End
-    // };
-    // TouchState _tstate;
 
     using Event = std::pair<TouchEvent, TouchEvent>;
 

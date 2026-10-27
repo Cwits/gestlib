@@ -15,13 +15,14 @@
 namespace GestLib {
 
 static const auto idleThreshold = std::chrono::milliseconds(10);
-static const int gestureToLost = 60;
 
-TwoFingerFSM::TwoFingerFSM(GestureRecognizer &rec) :
+TwoFingerFSM::TwoFingerFSM(GestureRecognizer &rec, TwoFingerFSMConfig cfg) :
+    _cfg(cfg),
     _recognizer(rec) 
 {
     _state = state::Idle;
     _idleActive = false;
+
 }
 
 TwoFingerFSM::~TwoFingerFSM() {
@@ -105,7 +106,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                             .touchId = -1
                         };
 
-                        _gestureToLost.start(gestureToLost, now);
+                        _gestureToLost.start(_cfg.gestureToLost, now);
                         _recognizer.pushGesture(t);
                     }
                 }
@@ -319,7 +320,7 @@ void TwoFingerFSM::resetOrProcess() {
                         .y = lerp(dy, _driverHeight, _outputHeight),
                         .touchId = -1
                     };
-                    _gestureToLost.start(gestureToLost, now);
+                    _gestureToLost.start(_cfg.gestureToLost, now);
                     _recognizer.pushGesture(t);
                 }
             }

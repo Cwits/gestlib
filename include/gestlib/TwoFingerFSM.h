@@ -64,6 +64,7 @@ struct TwoFingerFSM {
 
     timer _tapTimer;
 
+    timer _gestureToLost;
 
     GestureRecognizer & _recognizer;
     void printstate(bool);

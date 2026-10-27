@@ -15,8 +15,6 @@ namespace GestLib {
 FakeSDLDriver::FakeSDLDriver(const FakeSDLDriverConfig cfg) :
     _cfg(cfg)
 {
-    _width = 1920;
-    _height = 1080;
 }
 
 FakeSDLDriver::~FakeSDLDriver() {
@@ -24,6 +22,8 @@ FakeSDLDriver::~FakeSDLDriver() {
 }
 
 bool FakeSDLDriver::init() {
+    _width = _cfg.width;
+    _height = _cfg.height;
 
     _fd = eventfd(0, EFD_NONBLOCK);
     if(_fd < 0) {
@@ -35,9 +35,6 @@ bool FakeSDLDriver::init() {
 }
 
 bool FakeSDLDriver::shutdown() {
-    // uint64_t fd = 1;
-    // write(_fd, &fd, sizeof(fd));
-    
     close(_fd);
     return true;
 }
@@ -68,26 +65,121 @@ void FakeSDLDriver::feedSDLEvent(SDL_Event &ev) {
 
 std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
     std::vector<TouchEvent> ret;
+    //need to filter down mouse events?...
+    std::vector<SDL_Event> events;
+    bool hasMoveRet = false;
+
     for(auto &ev : _inEvents) {
         switch(ev.type) {
-            case(SDL_KEYDOWN): {
+            case(SDL_KEYDOWN): { 
                 SDL_Scancode &code = ev.key.keysym.scancode;
                 if(code == SDL_SCANCODE_C) {
-                    //enable touch
-                    _mode = Mode::OneTouch;
-                    ret.push_back({
-                        .id = _touchId,
-                        .type = TouchEvent::Type::Begin,
-                        .x = _lastX,
-                        .y = _lastY,
-                        .time = std::chrono::steady_clock::now()
-                    });
-                    _gestureOngoing = true;
+                    if(!_gestureOngoing) {
+                        //enable touch
+                        _mode = Mode::OneTouch;
+                        ret.push_back({
+                            .id = _touchId,
+                            .type = TouchEvent::Type::Begin,
+                            .x = _lastX,
+                            .y = _lastY,
+                            .time = std::chrono::steady_clock::now()
+                        });
+                        _gestureOngoing = true;
+                    }
                 } else if(code == SDL_SCANCODE_B) {
-                    //two touches opposite
-                    //two touches mode opposite move(for zoom)
+                    if(!_gestureOngoing) {
+                        //two touches opposite - zoomin
+                        //two touches mode opposite move(for zoom)
+                        _mode = Mode::TwoTouchDiverge;
+                        _tfdata.id1 = _touchId++;
+                        _tfdata.id2 = _touchId++;
+                        _tfdata.x1 = _lastX;
+                        _tfdata.y1 = _lastY;
+                        _tfdata.x2 = _lastX + 30;
+                        _tfdata.y2 = _lastY - 30;
+                        _tfdata.initx = _lastX;
+                        _tfdata.inity = _lastY;
+                        
+                        auto now = std::chrono::steady_clock::now();
+                        ret.push_back({
+                            .id = _tfdata.id1,
+                            .type = TouchEvent::Type::Begin,
+                            .x = _tfdata.x1,
+                            .y = _tfdata.y1,
+                            .time = now
+                        });
+                        
+                        ret.push_back({
+                            .id = _tfdata.id2,
+                            .type = TouchEvent::Type::Begin,
+                            .x = _tfdata.x2,
+                            .y = _tfdata.y2,
+                            .time = now
+                        });
+                        _gestureOngoing = true;
+                    }
+                } else if(code == SDL_SCANCODE_V) {
+                    //zoom out
+                    if(!_gestureOngoing) {
+                        _mode = Mode::TwoTouchConverge;
+                        _tfdata.id1 = _touchId++;
+                        _tfdata.id2 = _touchId++;
+                        _tfdata.x1 = _lastX;
+                        _tfdata.y1 = _lastY;
+                        _tfdata.x2 = _cfg.width - _lastX;
+                        _tfdata.y2 = _cfg.height - _lastY;
+                        _tfdata.initx = _lastX;
+                        _tfdata.inity = _lastY;
+                        
+                        auto now = std::chrono::steady_clock::now();
+                        ret.push_back({
+                            .id = _tfdata.id1,
+                            .type = TouchEvent::Type::Begin,
+                            .x = _tfdata.x1,
+                            .y = _tfdata.y1,
+                            .time = now
+                        });
+                        
+                        ret.push_back({
+                            .id = _tfdata.id2,
+                            .type = TouchEvent::Type::Begin,
+                            .x = _tfdata.x2,
+                            .y = _tfdata.y2,
+                            .time = now
+                        });
+                        _gestureOngoing = true;
+                    }
                 } else if(code == SDL_SCANCODE_N) {
                     //two touches mode same move(for tap, doubletap, swipe)
+                    if(!_gestureOngoing) {
+                        _mode = Mode::TwoTouchSame;
+                        _tfdata.id1 = _touchId++;
+                        _tfdata.id2 = _touchId++;
+                        _tfdata.x1 = _lastX;
+                        _tfdata.y1 = _lastY;
+                        _tfdata.x2 = _lastX + 30;
+                        _tfdata.y2 = _lastY - 30;
+                        _tfdata.initx = _lastX;
+                        _tfdata.inity = _lastY;
+                        
+                        auto now = std::chrono::steady_clock::now();
+                        ret.push_back({
+                            .id = _tfdata.id1,
+                            .type = TouchEvent::Type::Begin,
+                            .x = _tfdata.x1,
+                            .y = _tfdata.y1,
+                            .time = now
+                        });
+                        
+                        ret.push_back({
+                            .id = _tfdata.id2,
+                            .type = TouchEvent::Type::Begin,
+                            .x = _tfdata.x2,
+                            .y = _tfdata.y2,
+                            .time = now
+                        });
+                        _gestureOngoing = true;
+                    }
                 } else if(code == SDL_SCANCODE_M) {
                 }
             } break;
@@ -95,6 +187,7 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                 SDL_Scancode &code = ev.key.keysym.scancode;
                 if(code == SDL_SCANCODE_C) {
                     //disable touch
+                    if(ret.size() != 0) ret.clear();
                     _gestureOngoing = false;
                     ret.push_back({
                         .id = _touchId++,
@@ -104,19 +197,73 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                         .time = std::chrono::steady_clock::now()
                     });
                 } else if(code == SDL_SCANCODE_B) {
-
+                    
+                    auto now = std::chrono::steady_clock::now();
+                    ret.push_back({
+                        .id = _tfdata.id1,
+                        .type = TouchEvent::Type::End,
+                        .x = _tfdata.x1,
+                        .y = _tfdata.y1,
+                        .time = now
+                    });
+                    
+                    ret.push_back({
+                        .id = _tfdata.id2,
+                        .type = TouchEvent::Type::End,
+                        .x = _tfdata.x2,
+                        .y = _tfdata.y2,
+                        .time = now
+                    });
+                    _gestureOngoing = false;
+                } else if(code == SDL_SCANCODE_V) {
+                    //zoom out
+                    
+                    auto now = std::chrono::steady_clock::now();
+                    ret.push_back({
+                        .id = _tfdata.id1,
+                        .type = TouchEvent::Type::End,
+                        .x = _tfdata.x1,
+                        .y = _tfdata.y1,
+                        .time = now
+                    });
+                    
+                    ret.push_back({
+                        .id = _tfdata.id2,
+                        .type = TouchEvent::Type::End,
+                        .x = _tfdata.x2,
+                        .y = _tfdata.y2,
+                        .time = now
+                    });
+                    _gestureOngoing = false;
                 } else if(code == SDL_SCANCODE_N) {
 
+                    auto now = std::chrono::steady_clock::now();
+                    ret.push_back({
+                        .id = _tfdata.id1,
+                        .type = TouchEvent::Type::End,
+                        .x = _tfdata.x1,
+                        .y = _tfdata.y1,
+                        .time = now
+                    });
+                    
+                    ret.push_back({
+                        .id = _tfdata.id2,
+                        .type = TouchEvent::Type::End,
+                        .x = _tfdata.x2,
+                        .y = _tfdata.y2,
+                        .time = now
+                    });
+                    _gestureOngoing = false;
                 }
             } break;
             case(SDL_MOUSEMOTION): {
                 // int x = ev.motion.x;
                 // int y = ev.motion.y;
-                
                 _lastX = ev.motion.x;
                 _lastY = ev.motion.y;
 
-                if(_gestureOngoing) {
+                if(_gestureOngoing && !hasMoveRet) {
+                    hasMoveRet = true;
                     switch(_mode) {
                         case(Mode::OneTouch): {
                             ret.push_back({
@@ -127,12 +274,80 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                                 .time = std::chrono::steady_clock::now(),
                             });
                         } break;
-                        case(Mode::TwoTouchOpposite): {
+                        case(Mode::TwoTouchDiverge): {
+                            _tfdata.x1 = _lastX;
+                            _tfdata.y1 = _lastY;
+                            int diffx = _tfdata.initx - _lastX;
+                            int diffy = _tfdata.inity - _lastY;
+
+                            _tfdata.x2 = _tfdata.initx + diffx;
+                            _tfdata.y2 = _tfdata.inity + diffy;
+                            auto now = std::chrono::steady_clock::now();
+                            ret.push_back({
+                                .id = _tfdata.id1,
+                                .type = TouchEvent::Type::Move,
+                                .x = _tfdata.x1,
+                                .y = _tfdata.y1,
+                                .time = now
+                            });
+                            
+                            ret.push_back({
+                                .id = _tfdata.id2,
+                                .type = TouchEvent::Type::Move,
+                                .x = _tfdata.x2,
+                                .y = _tfdata.y2,
+                                .time = now
+                            });
+                        } break;
+                        case(Mode::TwoTouchConverge): {
+                            _tfdata.x1 = _lastX;
+                            _tfdata.y1 = _lastY;
+                            int diffx = _tfdata.initx - _lastX;
+                            int diffy = _tfdata.inity - _lastY;
+
+                            _tfdata.x2 = (_cfg.width - _tfdata.initx) + diffx;
+                            _tfdata.y2 = (_cfg.height - _tfdata.inity) + diffy;
+                            auto now = std::chrono::steady_clock::now();
+                            ret.push_back({
+                                .id = _tfdata.id1,
+                                .type = TouchEvent::Type::Move,
+                                .x = _tfdata.x1,
+                                .y = _tfdata.y1,
+                                .time = now
+                            });
+                            
+                            ret.push_back({
+                                .id = _tfdata.id2,
+                                .type = TouchEvent::Type::Move,
+                                .x = _tfdata.x2,
+                                .y = _tfdata.y2,
+                                .time = now
+                            });
                         } break;
                         case(Mode::TwoTouchSame): {
+                            _tfdata.x1 = _lastX;
+                            _tfdata.y1 = _lastY;
+                            _tfdata.x2 = _lastX + 30;
+                            _tfdata.y2 = _lastY - 30;
+                            auto now = std::chrono::steady_clock::now();
+                            ret.push_back({
+                                .id = _tfdata.id1,
+                                .type = TouchEvent::Type::Move,
+                                .x = _tfdata.x1,
+                                .y = _tfdata.y1,
+                                .time = now
+                            });
+                            
+                            ret.push_back({
+                                .id = _tfdata.id2,
+                                .type = TouchEvent::Type::Move,
+                                .x = _tfdata.x2,
+                                .y = _tfdata.y2,
+                                .time = now
+                            });
                         } break;
-                    }
-                }
+                    } // switch
+                } //if(_gestureOngoing && !hasMoveRet) {
             } break;
             case(SDL_MOUSEBUTTONDOWN): {
                 if(ev.button.button != 1) continue; // == 3 for left click
@@ -162,7 +377,8 @@ std::string FakeSDLDriver::helpString() const {
             Fake SDL Driver uses SDL to simulate Touch Events to Gesture Recognizer \n\
             To trigger events use keyboard, if needed to make a moving event press and hold keyboard key and move mouse\n\
             To make a single touch event press press 'C' \n\
-            To make a two finger touches to opposite sides from center press 'B' \n\
+            To make a two finger touches to diverge from center press 'B' \n\
+            To make a two finger touches to converge to center press 'V' \n\
             To make a two finger touches in same direction press 'N' \n\
         ");
 }

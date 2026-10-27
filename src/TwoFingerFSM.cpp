@@ -15,11 +15,13 @@
 namespace GestLib {
 
 static const auto idleThreshold = std::chrono::milliseconds(10);
+static const int gestureToLost = 60;
 
 TwoFingerFSM::TwoFingerFSM(GestureRecognizer &rec) :
     _recognizer(rec) 
 {
-
+    _state = state::Idle;
+    _idleActive = false;
 }
 
 TwoFingerFSM::~TwoFingerFSM() {
@@ -60,6 +62,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
             te2 = &touches[0];
         } else {
             std::cout << "Lost both touches" << std::endl;
+            reset();
             //idk yet what to do... i guess reset?
         }
     } else if(touches.size() == 2) {
@@ -101,6 +104,8 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                             .y = lerp(dy, _driverHeight, _outputHeight),
                             .touchId = -1
                         };
+
+                        _gestureToLost.start(gestureToLost, now);
                         _recognizer.pushGesture(t);
                     }
                 }
@@ -142,6 +147,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                     
                 // Gestures gest = changing ? Gestures::Zoom : Gestures::Swipe;
                 Gestures gest = lessThanMin >= 2 ? Gestures::TwoFingerSwipe : Gestures::Zoom;
+                
                 if(gest == Gestures::TwoFingerSwipe) {
                     float dist1 = distance(ev1, _startTouches.first);
                     float dist2 = distance(ev2, _startTouches.second);
@@ -162,6 +168,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                             .dx = 0,
                             .dy = 0 
                         };
+                        _gestureToLost.update(now);
                         _recognizer.pushGesture(swipe);
                         _state = state::SwipeOngoing;
                     }    
@@ -184,6 +191,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                             .verDif = 1.0f,
                             .verAbs = 1.0f
                         };
+                        _gestureToLost.update(now);
                         _recognizer.pushGesture(zoom);
                         _state = state::ZoomOngoing;
                     }    
@@ -221,6 +229,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .dx = dx1,
                     .dy = dy1 
                 };
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(swipe);
 
                 if(ev1.type == TouchEvent::Type::End) reset();
@@ -268,6 +277,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
                     .verDif = dVer, 
                     .verAbs = aVer    //abs means if zoom stayed at _startEvent than res would be 1.0f
                 };
+                _gestureToLost.update(now);
                 _recognizer.pushGesture(zoom);
 
                 if(ev1.type == TouchEvent::Type::End) reset();
@@ -285,7 +295,7 @@ void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
 void TwoFingerFSM::resetOrProcess() {
     auto now = std::chrono::steady_clock::now();    
 #if DEBUG_PRINT == 1
-    printstate(false);
+    if(_idleActive || _state != state::Idle) printstate(false);
 #endif
 
     switch(_state) {
@@ -309,6 +319,7 @@ void TwoFingerFSM::resetOrProcess() {
                         .y = lerp(dy, _driverHeight, _outputHeight),
                         .touchId = -1
                     };
+                    _gestureToLost.start(gestureToLost, now);
                     _recognizer.pushGesture(t);
                 }
             }
@@ -334,11 +345,13 @@ void TwoFingerFSM::resetOrProcess() {
             }
         } break;
         case(state::SwipeOngoing): {
-            reset();
+            if(_gestureToLost.active() && _gestureToLost.expired(now))
+                reset();
         } break;
         case(state::ZoomOngoing): {
             //... smth
-            reset();
+            if(_gestureToLost.active() && _gestureToLost.expired(now))
+                reset();
         } break;
     }
 }
@@ -366,6 +379,8 @@ void TwoFingerFSM::reset() {
     }
     _state = state::Idle;
     _idleActive = false;
+    _gestureToLost.stop();
+    _tapTimer.stop();
 
     _recognizer.reset();
 }
@@ -373,7 +388,10 @@ void TwoFingerFSM::reset() {
 void TwoFingerFSM::printstate(bool proc) {
     std::string text = proc ? "[TFS proc] " : "[TFS rest] ";
     switch(_state) {
-        case(state::Idle): _idleActive ? text.append("Idle A") : text.append("Idle NA"); break;
+        case(state::Idle): {
+            // if(_idleActive) text.append("Idle A");
+            _idleActive ? text.append("Idle A") : text.append("Idle NA"); 
+        } break;
         case(state::Stroke): text.append("Stroke"); break;
         case(state::Tap): text.append("Tap"); break;
         case(state::DoubleTap): text.append("Double Tap"); break;

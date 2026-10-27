@@ -377,7 +377,7 @@ void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
 void OneFingerFSM::resetOrProcess() {
     TimePoint now = std::chrono::steady_clock::now();
 #if DEBUG_PRINT == 1
-    printState(_state, false);
+    if(_idleActive || _state != state::Idle)  printState(_state, false);
 #endif
     switch(_state) {
         case(Idle): {
@@ -419,7 +419,8 @@ void OneFingerFSM::resetOrProcess() {
         } break;
         case(DragOrHold): {
             // ???
-            reset();
+            //the fakeSDL driver fails here due to too fast updates, dunno how it will affect real driver
+            // reset(); //TODO:need some time-to-lost timer here??
         } break;
         case(DragOngoing): {
             if(_lastEvent.type == TouchEvent::Type::End) {
@@ -576,11 +577,12 @@ void OneFingerFSM::reset() {
 }
 
 void OneFingerFSM::printState(state state, bool proc) {
-    std::string text = proc ? "[OFS proc] " : "[OFS reso] ";
+    std::string text = proc ? "[OFS proc] " : "[OFS rest] ";
     switch(state) {
         case(Idle): { 
             if(!_idleActive) text.append("Idle NA"); 
             else text.append("Idle A"); 
+            // if(_idleActive) text.append("Idle A");
         } break;
         case(Stroke): text.append("Stroke"); break;
         case(DragOrHold): text.append("DragOrHold"); break;

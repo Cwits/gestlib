@@ -20,8 +20,8 @@ Known bugs exist. See TODO.
 
 Requirements:  
 - libevdev  
-- libsdl2 (for example and fakeSDL driver)
-- libsdl2-ttf-dev (for example only)
+- libsdl2 (for examples and fakeSDL driver)
+- libsdl2-ttf-dev (for examples only)
 
 Known issues:  
 - Sometimes incomplete termination events for complex gestures (e.g., Drag, Hold).

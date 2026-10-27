@@ -3,10 +3,7 @@
 
 #pragma once
 #include <string>
-#include <queue>
 #include <vector>
-#include <deque>
-#include <chrono>
 #include <linux/input.h>
 #include <mutex>
 
@@ -19,7 +16,11 @@ class libevdev;
 namespace GestLib {
 
 struct FakeSDLDriverConfig {
-
+    int width = 1920;
+    int height = 1080;
+    SDL_Scancode oneFingerButton = SDL_SCANCODE_C;
+    SDL_Scancode twofingerButtonOpp = SDL_SCANCODE_B;
+    SDL_Scancode twoFingerButtonSame = SDL_SCANCODE_N;
 };
 
 class FakeSDLDriver : public TouchDriver {
@@ -49,17 +50,31 @@ class FakeSDLDriver : public TouchDriver {
 
     int _lastX;
     int _lastY;
-    bool _gestureOngoing;
-    int _scndX;
-    int _scndY;
 
+    bool _gestureOngoing;
+    
     enum class Mode {
         OneTouch,
-        TwoTouchOpposite,
+        TwoTouchDiverge, //zoomin
+        TwoTouchConverge, //zoomout
         TwoTouchSame
     }; 
     Mode _mode;
     
+    struct TwoFingerData {
+        int initx;
+        int inity;
+        int x1;
+        int y1;
+        int id1;
+
+        int x2;
+        int y2;
+        int id2;
+    };
+
+    TwoFingerData _tfdata;
+
     std::vector<TouchEvent> _currentFrameEvents;
 
     int _internalIdCounter; 

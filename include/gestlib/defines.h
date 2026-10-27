@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <deque>
 
-#define DEBUG_PRINT 0
+#define DEBUG_PRINT 1
 
 namespace GestLib {
 
@@ -104,6 +104,7 @@ struct Vec2i {
 using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
 
 struct timer {
+    timer() { _active = false; }
     void start(int timeout, TimePoint & now) {
         _active = true;  
         _timeout = std::chrono::milliseconds(timeout);  
@@ -119,6 +120,10 @@ struct timer {
         return diff >= _timeout;
     }
 
+    void update(TimePoint &now) {
+        _startTime = now;
+    }
+    
     private:
     bool _active;
     std::chrono::milliseconds _timeout;

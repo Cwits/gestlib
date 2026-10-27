@@ -11,6 +11,7 @@
 #include <thread>
 
 #include "gestlib/drivers/Generic.h"
+#include "gestlib/drivers/FakeSDL.h"
 #include "gestlib/GestureRecognizer.h"
 //requires sudo apt install libsdl2-ttf-dev
 
@@ -106,9 +107,14 @@ int main() {
     rng = std::mt19937(std::random_device{}());
     colorDist = std::uniform_int_distribution<unsigned char>(100, 255);
 
-    GestLib::GenericDriverConfig dcfg{};
-    GestLib::GenericDriver driver(dcfg);
-    driver.init(true);
+    // GestLib::GenericDriverConfig dcfg{};
+    // GestLib::GenericDriver driver(dcfg);
+    // driver.init(true);
+
+    
+    GestLib::FakeSDLDriver driver(GestLib::FakeSDLDriverConfig{});
+    driver.init();
+    std::cout << driver.helpString() << std::endl;
 
     GestLib::RecognizerConfig cfg{};
     GestLib::GestureRecognizer recn(cfg);
@@ -139,6 +145,7 @@ int main() {
                     }
                 } break;
             }
+            driver.feedSDLEvent(event);
         }
 
         // Очистка экрана
@@ -147,8 +154,8 @@ int main() {
 
         std::vector<GestLib::Gesture> gestures = recn.fetchGestures();
         for(const GestLib::Gesture &g : gestures) {
-            // std::string text = GestLib::gestureToText(g.type);
-            // std::cerr << "[Main] ------------------ " << text << " -----------------------" << std::endl;
+            std::string text = GestLib::gestureToText(g.type);
+            std::cerr << "[Main] ------------------ " << text << " -----------------------" << std::endl;
             switch(currentScene) {
                 case(Scene::SomeExample): break;
                 case(Scene::HoldAndDragExample): hadScene.handleGesture(g); break;
@@ -366,6 +373,7 @@ void ZoomScene::drawScene() {
 
 
 void HoldAndDragScene::handleGesture(const GestLib::Gesture &g) {
+    text = GestLib::gestureToText(g.type);
     switch(g.type) {
         case(GestLib::Gestures::TouchDown): {
             const GestLib::TouchDownEvent &td = g.touchDown;
@@ -437,7 +445,7 @@ void HoldAndDragScene::handleGesture(const GestLib::Gesture &g) {
             boxes.clear();
         } break;
         default:
-            if(inEvent) text = GestLib::gestureToText(g.type);
+            // if(inEvent) text = GestLib::gestureToText(g.type);
         break;
     }
 }
@@ -449,9 +457,10 @@ void HoldAndDragScene::drawScene() {
         DrawRect(renderer, b.color, x, y, 60, 60);
     }
 
-    std::string noAction = "No Action";
-    if(inEvent) DrawText(renderer, font28, text, 1500, 100, whiteColor);
-    else DrawText(renderer, font28, noAction, 1500, 100, whiteColor);
+    // std::string noAction = "No Action";
+    DrawText(renderer, font28, text, 1500, 100, whiteColor);
+    // if(inEvent) DrawText(renderer, font28, text, 1500, 100, whiteColor);
+    // else DrawText(renderer, font28, noAction, 1500, 100, whiteColor);
 }
 
 bool HoldAndDragScene::Box::within(int _x, int _y) {

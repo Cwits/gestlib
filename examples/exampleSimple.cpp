@@ -6,6 +6,7 @@
 #include <csignal>
 #include <thread>
 
+#include "gestlib/drivers/Generic.h"
 #include "gestlib/GestLib.h"
 
 using namespace GestLib;
@@ -21,17 +22,17 @@ void processGestures(const std::vector<Gesture> & gestures);
 int main() {
     signal(SIGINT, signalHandler);
     
-    GestureRecognizer recognizer; //or fake
-
-    if(!recognizer.init()) {
+    GenericDriver driver(GenericDriverConfig{});
+    if(!driver.init(true)) {
         return 1;
     }
-    
-    recognizer.windowSize(1920, 1080);
-    
-    if(!recognizer.start()) {
+
+    GestureRecognizer recognizer(RecognizerConfig{});
+    if(!recognizer.init(&driver)) {
         return 2;
     }
+
+    recognizer.start();
 
     int fps = 1 / 60.f * 1000;
     while(_running) {
@@ -42,6 +43,8 @@ int main() {
     }
 
     recognizer.shutdown();
+    driver.shutdown();
+    
     return 0;
 }
 
@@ -105,8 +108,29 @@ void processGestures(const std::vector<Gesture> & gestures) {
                 else if(g.dtCircular.state == GestureState::End)
                     std::cout << "it's a DoubleTapCircular End!" << std::endl;
             break;
+            case(Gestures::Zoom): 
+                std::cout << "it's a Zoom!" << std::endl;
+            break;
+            case(Gestures::Rotate):
+                std::cout << "it's a Rotate!" << std::endl;
+            break;
+            case(Gestures::TwoFingerTap):
+                std::cout << "it's a Two Finger Tap!" << std::endl;
+            break;
+            case(Gestures::TwoFingerDoubleTap):
+                std::cout << "it's a Two Finger Double Tap" << std::endl;
+            break;
+            case(Gestures::TwoFingerSwipe):
+                std::cout << "it's a Two Finger Swipe" << std::endl;
+            break;
+            case(Gestures::ThreeFingerTap):
+                std::cout << "it's a Three Finger Tap" << std::endl;
+            break;
+            case(Gestures::ThreeFingerSwipe):
+                std::cout << "it's a Three Finger Swipe" << std::endl;
+            break;
             default:
-                std::cout << "unknows gesture" << std::endl;
+                std::cout << "Unknown or unhandled gesture" << std::endl;
             break;
         }
     }

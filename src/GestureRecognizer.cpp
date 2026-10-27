@@ -15,7 +15,12 @@ constexpr auto IDLE_TIMEOUT = std::chrono::milliseconds(300);
 
 namespace GestLib {
 
-GestureRecognizer::GestureRecognizer() : _ofs(*this), _dri() {
+GestureRecognizer::GestureRecognizer(GestLib::RecognizerConfig cfg) : 
+    _cfg(cfg),    
+    _dri(nullptr), 
+    _ofs(*this, cfg.oneCfg),
+    _tfs(*this, cfg.twoCfg)
+{
     _running = false;
     _gesturesQueue.clear();
 }
@@ -24,16 +29,25 @@ GestureRecognizer::~GestureRecognizer() {
     if(_running) shutdown();
 }
 
-bool GestureRecognizer::init() {
-    if(!_dri.init()) {
-        std::cout << "Failed to init real driver, try to use fake one" << std::endl;
+bool GestureRecognizer::init(TouchDriver *dri) {
+    if(!dri) {
+        std::cerr << "Driver is nullptr" << std::endl;
+        return false;
+    }
+    if(_running) shutdown();
+
+    if(!_ofs.init(dri->width(), dri->height())) {
+        std::cerr << "Failed to init state machine one" << std::endl;
         return false;
     }
 
-    if(!_ofs.init(_dri.resolutionX(), _dri.resolutionY())) {
-        std::cout << "Failed to init real driver, try to use fake one" << std::endl;
+    if(!_tfs.init(dri->width(), dri->height())) {
+        std::cerr << "Failed to init state machine two" << std::endl;
         return false;
     }
+
+    _ofs.outputResolution(_cfg.outputWidth, _cfg.outputHeight);
+    _tfs.outputResolution(_cfg.outputWidth, _cfg.outputHeight);
 
     _efd = eventfd(0, EFD_NONBLOCK);
     
@@ -42,8 +56,9 @@ bool GestureRecognizer::init() {
         return false;
     }
 
-    _dri.printCapabilities();
     _ofs.reset();
+    _gesturesQueue.clear();
+    _dri = dri;
     return true;
 }
 
@@ -55,7 +70,6 @@ bool GestureRecognizer::shutdown() {
 
     _recognizer.join();
     
-    _dri.shutdown();
     close(_efd);
 
     return true;
@@ -63,11 +77,15 @@ bool GestureRecognizer::shutdown() {
 
 //TODO: no actual check's here, always returns true!!
 bool GestureRecognizer::start() {
+    if(!_dri) {
+        std::cerr << "Unable to start, driver not presented" << std::endl;
+        return false;
+    }
     _running = true;
 
     auto iteration = [this]() {    
         struct pollfd fds[2];
-        fds[0].fd = this->_dri.fd();
+        fds[0].fd = this->_dri->fd();
         fds[0].events = POLLIN;
         fds[1].fd = this->_efd;
         fds[1].events = POLLIN;
@@ -94,30 +112,67 @@ bool GestureRecognizer::start() {
                 continue;
             }
 
-            std::vector<TouchEvent> touches = this->_dri.getEvents();
+            std::vector<TouchEvent> touches = this->_dri->getEvents();
             std::size_t size = touches.size();
-                    
-            if(size == 0) {
-                this->_ofs.resetOrProcess(/*touches*/);
-            }else if(size == 1) {
-                this->_ofs.process(touches);
-            } else if(size == 2) {
-                this->_ofs.reset();
-            } else if(size == 3) {
-                this->_ofs.reset();
-            }    
+#if DEBUG_PRINT == 1
+            // std::cout << "[GR] Touch count " << touches.size() << std::endl;
+#endif
 
+            /* 
+                for(touch : touches) {
+                    if(!containsAnyOf(_captured)) continue;
+                    _captured->onMove(touch);
+
+                    touches.erase(touch);
+                }
+            */
+
+            switch(_state) {
+                case(RecognizerState::Idle): {
+                    if(size == 0) {
+                        this->_ofs.resetOrProcess();
+                        this->_tfs.resetOrProcess();
+                    }else if(size == 1) {
+                        this->_ofs.process(touches);
+                        this->_tfs.reset();
+                    } else if(size == 2) {
+                        this->_ofs.reset();
+                        this->_tfs.process(touches);
+                    } else if(size == 3) {
+                        this->_ofs.reset();
+                        this->_tfs.reset();
+                        //this->_thfs.process(touches);
+                    } else {
+                        this->_ofs.reset();
+                        this->_tfs.reset();
+                    }
+                } break;
+                case(RecognizerState::OneFingerOngoing): {
+                    if(size == 0) this->_ofs.resetOrProcess();
+                    else if(size == 1) this->_ofs.process(touches);
+                    else this->_ofs.reset();
+                } break;
+                case(RecognizerState::TwoFingerOngoing): {
+                    if(size == 0) this->_tfs.resetOrProcess();
+                    else if(size > 0 && size < 3) this->_tfs.process(touches);
+                    else this->_tfs.reset();
+                } break;
+            }
+
+// #if DEBUG_PRINT == 1
             // for(int i=0; i<touches.size(); ++i) {
             //     TouchEvent & ev = touches.at(i);
             //     std::string type;
             //     if(ev.type == TouchEvent::Type::Begin) type = "Begin";
             //     else if(ev.type == TouchEvent::Type::Move) type = "Move";
             //     else if(ev.type == TouchEvent::Type::End) type = "End";
-            //     std::cout << "id: " << ev.id <<
+            //     std::cerr << "id: " << ev.id <<
             //                 " type : " << type <<
             //                 " x: " << ev.x <<
             //                 " y: " << ev.y << std::endl;
             // } 
+// #endif
+
         }  
     };
 
@@ -138,5 +193,13 @@ std::vector<Gesture> GestureRecognizer::fetchGestures() {
     }
     return ret;
 }
+
+// void GestureRecognizer::registerTouchCapture(TouchCapture *tc, int touchId) {
+    // lock l(mutex)
+    // _captured.push_back({.tc = tc, .touchId = touchId});
+//}
+// void GestureRecognizer::unregisterTouchCapture(TouchCapture *tc, int touchId) {
+    // _captured.erase(...);
+//} 
 
 }//namespace

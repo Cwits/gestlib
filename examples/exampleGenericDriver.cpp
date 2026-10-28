@@ -48,10 +48,10 @@ int main() {
 
     bool running = true;
 
-    GestLib::GenericDriver _dri(GestLib::GenericDriverConfig{});
-    _dri.init(true);
-    // GestLib::FakeSDLDriver _dri(GestLib::FakeSDLDriverConfig{});
-    // _dri.init();
+    // GestLib::GenericDriver _dri(GestLib::GenericDriverConfig{});
+    // _dri.init(true);
+    GestLib::FakeSDLDriver _dri(GestLib::FakeSDLDriverConfig{});
+    _dri.init();
 
     while (running) {
         SDL_Event event;
@@ -67,7 +67,7 @@ int main() {
                     }
                 } break;
             }
-            // _dri.feedSDLEvent(event);
+            _dri.feedSDLEvent(event);
         }
 
         // Очистка экрана

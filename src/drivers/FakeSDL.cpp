@@ -15,6 +15,8 @@ namespace GestLib {
 FakeSDLDriver::FakeSDLDriver(const FakeSDLDriverConfig cfg) :
     _cfg(cfg)
 {
+    _movementVertical = false;
+    _pressed = false;
 }
 
 FakeSDLDriver::~FakeSDLDriver() {
@@ -95,8 +97,13 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                         _tfdata.id2 = _touchId++;
                         _tfdata.x1 = _lastX;
                         _tfdata.y1 = _lastY;
-                        _tfdata.x2 = _lastX + 30;
-                        _tfdata.y2 = _lastY - 30;
+                        if(_movementVertical) {
+                            _tfdata.x2 = _lastX;
+                            _tfdata.y2 = _lastY - 30;
+                        } else {
+                            _tfdata.x2 = _lastX + 30;
+                            _tfdata.y2 = _lastY;
+                        }
                         _tfdata.initx = _lastX;
                         _tfdata.inity = _lastY;
                         
@@ -157,8 +164,13 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                         _tfdata.id2 = _touchId++;
                         _tfdata.x1 = _lastX;
                         _tfdata.y1 = _lastY;
-                        _tfdata.x2 = _lastX + 30;
-                        _tfdata.y2 = _lastY - 30;
+                        if(_movementVertical) {
+                            _tfdata.x2 = _lastX;
+                            _tfdata.y2 = _lastY - 30;
+                        } else {
+                            _tfdata.x2 = _lastX + 30;
+                            _tfdata.y2 = _lastY;
+                        }
                         _tfdata.initx = _lastX;
                         _tfdata.inity = _lastY;
                         
@@ -181,6 +193,17 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                         _gestureOngoing = true;
                     }
                 } else if(code == SDL_SCANCODE_M) {
+                } else if(code == SDL_SCANCODE_H) {
+                    if(!_pressed) {
+                        if(_movementVertical) {
+                            std::cout << "Horiontal movement" << std::endl;
+                            _movementVertical = false;
+                        } else {
+                            std::cout << "Vertical movement" << std::endl;
+                            _movementVertical = true;
+                        }
+                        _pressed = true;
+                    }
                 }
             } break;
             case(SDL_KEYUP): {
@@ -254,6 +277,8 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                         .time = now
                     });
                     _gestureOngoing = false;
+                } else if(code == SDL_SCANCODE_H) {
+                    if(_pressed) _pressed = false;
                 }
             } break;
             case(SDL_MOUSEMOTION): {
@@ -279,9 +304,13 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                             _tfdata.y1 = _lastY;
                             int diffx = _tfdata.initx - _lastX;
                             int diffy = _tfdata.inity - _lastY;
-
-                            _tfdata.x2 = _tfdata.initx + diffx;
-                            _tfdata.y2 = _tfdata.inity + diffy;
+                            if(_movementVertical) {
+                                _tfdata.x2 = _lastX;
+                                _tfdata.y2 = _tfdata.inity + diffy;
+                            } else {
+                                _tfdata.x2 = _tfdata.initx + diffx;
+                                _tfdata.y2 = _lastY;
+                            }
                             auto now = std::chrono::steady_clock::now();
                             ret.push_back({
                                 .id = _tfdata.id1,
@@ -304,9 +333,15 @@ std::vector<TouchEvent> FakeSDLDriver::parseInEvents() {
                             _tfdata.y1 = _lastY;
                             int diffx = _tfdata.initx - _lastX;
                             int diffy = _tfdata.inity - _lastY;
+                            
+                            if(_movementVertical) {
+                                _tfdata.x2 = _lastX;
+                                _tfdata.y2 = (_cfg.height - _tfdata.inity) + diffy;
+                            } else {
+                                _tfdata.x2 = (_cfg.width - _tfdata.initx) + diffx;
+                                _tfdata.y2 = _lastY;
+                            }
 
-                            _tfdata.x2 = (_cfg.width - _tfdata.initx) + diffx;
-                            _tfdata.y2 = (_cfg.height - _tfdata.inity) + diffy;
                             auto now = std::chrono::steady_clock::now();
                             ret.push_back({
                                 .id = _tfdata.id1,
@@ -380,6 +415,7 @@ std::string FakeSDLDriver::helpString() const {
             To make a two finger touches to diverge from center press 'B' \n\
             To make a two finger touches to converge to center press 'V' \n\
             To make a two finger touches in same direction press 'N' \n\
+            To toggle two finger movement between X or Y axis press 'H' \n\
         ");
 }
 

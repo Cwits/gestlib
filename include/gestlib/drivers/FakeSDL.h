@@ -74,6 +74,8 @@ class FakeSDLDriver : public TouchDriver {
     };
 
     TwoFingerData _tfdata;
+    bool _movementVertical;
+    bool _pressed;
 
     std::vector<TouchEvent> _currentFrameEvents;
 

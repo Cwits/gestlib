@@ -19,13 +19,6 @@ OneFingerFSM::OneFingerFSM(GestureRecognizer & rec, OneFingerFSMConfig cfg) :
     _cfg(cfg), 
     _recognizer(rec) 
 {
-    _tapTimeout = cfg.tapTimeout;
-    _dragThreshold = cfg.dragThreshold;
-    _holdThreshold = cfg.holdThreshold;
-    _doubleTapTimeout = cfg.doubleTapTimeout;
-    _maxHistoryLength = cfg.maxHistoryLength;
-
-    _doubleTapHelper = Undetected;
 }
 
 bool OneFingerFSM::init(int driverWidth, int driverHeight) {
@@ -39,578 +32,330 @@ void OneFingerFSM::outputResolution(int w, int h) {
     _outputHeight = h;
 }
 
-void OneFingerFSM::process(std::vector<TouchEvent> & touches) {
-    TouchEvent & event = touches[0];
-    TimePoint now = std::chrono::steady_clock::now();
-#if DEBUG_PRINT == 1
-    printState(_state, true);
-#endif
+std::optional<TimePoint> OneFingerFSM::nextDeadline() {
+    if(_state == state::Stroke) return _holdDeadline.when(); //_lastEventTime + std::chrono::milliseconds(_cfg.holdThreshold);
+    if(_state == state::WaitingTap) return _tapDeadline.when(); //_lastEventTime + std::chrono::milliseconds(_cfg.tapTimeout);
+    if(_state == state::WaitingDoubleTap) return _doubleTapDeadline.when();
+    return std::nullopt;
+}
 
+bool OneFingerFSM::lockedOnGesture(const std::chrono::milliseconds timeout, const TimePoint &now) {
+    return (_state != state::Stroke && (now - _startEventTime > timeout));
+}
+    
+void OneFingerFSM::onEvent(const TouchEvent &ev, const TimePoint &now) {
+    // std::cout << "On Event State ";
+    // printState(_state, false);
     switch(_state) {
-        case(Idle): {
-            if(event.type == TouchEvent::Type::Begin) {
-                if(!_idleActive) {    
-                    _startEvent = event;
-                    _tapTimer.start(_tapTimeout, now);
-                    _dragOrHoldTimer.start(_dragThreshold, now);
-                    _holdTimer.start(_holdThreshold, now);
-                    
-                    _idleActive = true;
-                    _idleToStroke = now;
-                }
-            } else {
-                if(_idleActive) {
-                    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - _idleToStroke);
-                    if(diff > idleThreshold) {
-                        _recognizer._state = GestureRecognizer::RecognizerState::OneFingerOngoing;
-
-                        _state = Stroke;
-                        
-                        // std::cout << "[OFS] ------- td -------" << std::endl;
-                        Gesture t;
-                        t.type = Gestures::TouchDown;
-                        t.touchDown = {
-                            .x = lerp(_lastEvent.x, _driverWidth, _outputWidth),
-                            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                            .touchId = _lastEvent.id
-                        };
-                        _gestureToLost.start(_cfg.gestureToLost, now);
-                        _recognizer.pushGesture(t);
-                    }
-                }
+        case(state::Idle): {
+            if(ev.type == TouchEvent::Type::Begin) {
+                _holdDeadline.start(_cfg.holdThreshold, now);
+                _state = state::Stroke;
+                _startEvent = ev;
+                _startEventTime = now;
             }
         } break;
-        case(Stroke): {
-            if(event.type != TouchEvent::Type::End && event.id == _startEvent.id) {
-                _tapTimer.stop();
-                if(event.id == _startEvent.id) {
-                    if(_lastEvent.type != TouchEvent::Type::Move) {
-                        if(_dragOrHoldTimer.active() && _dragOrHoldTimer.expired(now)) {
-                            _state = DragOrHold;
-                        } 
-                    } else {
-                        float dist = distance(event, _startEvent);
-                        if(dist >= 2) {
-                            Gesture swipe;
-                            swipe.type = Gestures::Swipe;
-                            swipe.swipe = {
-                                .state = GestureState::Start,
-                                .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
-                                .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
-                                .dx = 0,
-                                .dy = 0
-                            }; 
-                            _gestureToLost.update(now);
-                            _recognizer.pushGesture(swipe);
-                            _state = SwipeOngoing;
-                        }
-                    }
-                }
-            } else if(event.type == TouchEvent::Type::Begin && event.id != _startEvent.id) {
-                _doubleTapTimer.start(_doubleTapTimeout, now);
-                _state = DoubleTapPossible;
+        case(state::Stroke): {
+            //assuming that we cant get here with ev.id != _startEvent.id
+            if(ev.id != _startEvent.id) {
+                std::cerr << "New event id not equal to captured start event id, resetting" << std::endl;
+                reset();
             }
-        } break;
-        case(DragOrHold): {
-            if(event.id != _startEvent.id) {
-                if(_gestureToLost.active() && _gestureToLost.expired(now))
-                    reset();
-            }
+            if(ev.type == TouchEvent::Type::Move) {
+                //swipe or drag
+                bool earlyForDrag = (now - _lastEventTime) < std::chrono::milliseconds(_cfg.dragThreshold);
+                float dist = distance(ev, _lastEvent);
             
-            if(event.type == TouchEvent::Type::Move) {
-                _dragOrHoldTimer.stop();
-                _holdTimer.stop();
-                float dist = distance(event, _startEvent);
-                if(dist >= 20) {
-                    Gesture drag;
-                    drag.type = Gestures::Drag;
-                    drag.drag = {
-                        .state = GestureState::Start,
-                        .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
-                        .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
-                        .dx = 0,
-                        .dy = 0
-                    };
-                    _gestureToLost.update(now);
-                    _recognizer.pushGesture(drag);
-                    _state = DragOngoing;
-                }   
-            }
-        } break;
-        case(DragOngoing): {
-            float dist = distance(event, _lastEvent);
-            if(event.type == TouchEvent::Type::Move) {
-                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
-                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
-                Gesture drag;
-                drag.type = Gestures::Drag;
-                drag.drag  = {
-                    .state = GestureState::Move,
-                    .x = lerp(event.x, _driverWidth, _outputWidth),
-                    .y = lerp(event.y, _driverHeight, _outputHeight),
-                    .dx = dx,
-                    .dy = dy
-                };
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(drag);
-            }
-        } break;
-        case(DoubleTapPossible): {
-            if(event.type == TouchEvent::Type::Move && event.id == _lastEvent.id) { 
-                if(_eventsHistory.size() < 5) break;
+                if(dist < _cfg.minMoveThreshold) break;
 
-                //check all 5 are move
-                bool skip = false;
-                std::size_t size = _eventsHistory.size();
-                for(int i=size-5; i<size; ++i) {
-                    if(_eventsHistory[i].type != TouchEvent::Type::Move) {
-                        skip = true;
-                        break;
-                    }
+                if(earlyForDrag) {
+                    //swipe
+                    _state = state::SwipeOngoing;
+                    emitStart(Gestures::Swipe, ev.x, ev.y);
+                } else if(!earlyForDrag) {
+                    //drag
+                    _state = state::DragOngoing;
+                    emitStart(Gestures::Drag, ev.x, ev.y);
                 }
-
-                if(skip) break;
-
-                if (_eventsHistory.size() % 5 == 0) {
-                    //calc radius
-                    float aproxRad = 0.0f;
-                    {  
-                        bool skip = false;
-                        std::size_t size = _eventsHistory.size();
-                        if(size < 10) skip = true;
-
-                        if(!skip) {
-                            for(std::size_t s=size-10; s<size; ++s) {
-                                TouchEvent & t = _eventsHistory[s];
-                                aproxRad = std::sqrt(std::pow(t.x-_startEvent.x, 2)+std::pow(t.y-_startEvent.y, 2));
-                            }
-                            aproxRad /= 10;
-                            // std::cout << "aprox radius: " << aproxRad << std::endl;
-                        }
-                    }
-
-                    float deltaAngle = 0.0f;
-                    {//calc polar angle
-                        std::size_t size = _eventsHistory.size();
-                        float tmp = 0.0f;
-                        float tmp2 = 0.0f;
-                        for(std::size_t s=size-4; s<size; ++s) {
-                            TouchEvent &t = _eventsHistory[s];
-                            TouchEvent &t1 = _eventsHistory[s-1];
-                            tmp = std::atan2(t.y-_startEvent.y, t.x-_startEvent.x);
-                            tmp2 = std::atan2(t1.y-_startEvent.y, t1.x-_startEvent.x);
-                            float tmp3 = tmp - tmp2;
-                            deltaAngle += normalize_angle(tmp3);
-                        }
-                        std::cout << "angle rotation: " << deltaAngle << std::endl;
-                    }
-
-
-
-                    float turnSum = computeTurnAngleSum(_eventsHistory);
-                    // std::cout << "turnsum: " << turnSum << std::endl;
-                    float triqpi = M_PI * 0.95f;
-                    if (turnSum >= triqpi) {
-                        _doubleTapHelper = Circular;
-                    } else {
-                        _doubleTapHelper = Linear;
-                    }
-                    _predictions++;
+            } else if(ev.type == TouchEvent::Type::End) {
+                if(_cfg.doubleTapEnabled) {
+                    _tapDeadline.start(_cfg.tapTimeout, now);
+                    _state = state::WaitingTap;
+                } else {
+                    emitStart(Gestures::Tap, ev.x, ev.y);
+                    reset();
                 }
-
-                if(_predictions >= 10) {
-                    if(_doubleTapHelper == Circular) {
-                        Gesture circ;
-                        circ.type = Gestures::DoubleTapCircular;
-                        circ.dtCircular = {
-                            .state = GestureState::Start,
-                            .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
-                            .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
-                            .dx = 0,
-                            .dy = 0,
-                            .angle = 0.f,
-                            .deltaAngle = 0.f,
-                            .radius = 0.f,
-                            .speed = 0.f
-                        };
-                        _gestureToLost.update(now);
-                        _recognizer.pushGesture(circ);
-
-                        _state = DoubleTapCircularOngoing;
-                    } else if(_doubleTapHelper == Linear) {
-                        Gesture swipe;
-                        swipe.type = Gestures::DoubleTapSwipe;
-                        swipe.dtSwipe = {
-                            .state = GestureState::Start,
-                            .x = lerp(_startEvent.x, _driverWidth, _outputWidth),
-                            .y = lerp(_startEvent.y, _driverHeight, _outputHeight),
-                            .dx = 0,
-                            .dy = 0
-                        };
-                        _gestureToLost.update(now);
-                        _recognizer.pushGesture(swipe);
-
-                        _state = DoubleTapSwipeOngoing;
-                    }
-                }
-            } else if(event.type == TouchEvent::Type::Begin && event.id != _lastEvent.id) {
-                std::cout << "Holly cow!" << std::endl;
             }
         } break;
-        case(DoubleTapSwipeOngoing): {
-            float dist = distance(event, _lastEvent);
-            if(event.type == TouchEvent::Type::Move && dist >= 2) {
-                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
-                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
-                Gesture swipe;
-                swipe.type = Gestures::DoubleTapSwipe;
-                swipe.dtSwipe = {
-                    .state = GestureState::Move,
-                    .x = lerp(event.x, _driverWidth, _outputWidth),
-                    .y = lerp(event.y, _driverHeight, _outputHeight),
-                    .dx = dx,
-                    .dy = dy
-                };
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(swipe);
-
+        case(state::WaitingTap): {
+            if(ev.type == TouchEvent::Type::Begin && _lastEvent.id != ev.id) {
+                _tapDeadline.stop();
+                _doubleTapDeadline.start(_cfg.doubleTapTimeout, now);
+                _state = state::WaitingDoubleTap;
             }
         } break;
-        case(DoubleTapCircularOngoing): {
-            float dist = distance(event, _lastEvent);
-            if(event.type == TouchEvent::Type::Move && dist > 2) {
-                
-                float anglePrev = getAngle(_lastEvent.x, _lastEvent.y, _startEvent.x, _startEvent.y);
-                float angleCurr = getAngle(event.x, event.y, _startEvent.x, _startEvent.y);
-                
-                float deltaAngle = angleCurr - anglePrev;
-                if (deltaAngle > M_PI) deltaAngle -= 2 * M_PI;
-                if (deltaAngle < -M_PI) deltaAngle += 2 * M_PI;
-
-                // _totalAngle += deltaAngle;
-
-                float dx = event.x - _startEvent.x;
-                float dy = event.y - _startEvent.y;
-                float radius = std::sqrt(dx*dx + dy*dy);
-
-                float dt = std::chrono::duration<float>(now - event.time).count();
-                float speed = deltaAngle / dt;
-
-                /*std::cout << "Double tap circular" << 
-                    " move angle: " << angleCurr << 
-                    " delta angle: " << deltaAngle << 
-                    " radius: " << radius << 
-                    " speed: " << speed << 
-                    " x: " << event.x << 
-                    " y: " << event.y << std::endl;*/
-                Gesture circ;
-                circ.type = Gestures::DoubleTapCircular;
-                circ.dtCircular = {
-                    .state = GestureState::Move,
-                    .x = lerp(event.x, _driverWidth, _outputWidth),
-                    .y = lerp(event.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0,
-                    .angle = angleCurr,
-                    .deltaAngle = deltaAngle,
-                    .radius = radius,
-                    .speed = speed
-                };
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(circ);
-            }
-        } break;
-        case(SwipeOngoing): {
-            float dist = distance(event, _lastEvent);
-            if(event.type == TouchEvent::Type::Move && dist > 5) {
-                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
-                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
-                Gesture swipe;
-                swipe.type = Gestures::Swipe;
-                swipe.swipe = {
-                    .state = GestureState::Move,
-                    .x = lerp(event.x, _driverWidth, _outputWidth),
-                    .y = lerp(event.y, _driverHeight, _outputHeight),
-                    .dx = dx,
-                    .dy = dy
-                };
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(swipe);
-            } else if(event.type == TouchEvent::Type::End) {
-                Gesture swipe;
-                swipe.type = Gestures::Swipe;
-                swipe.swipe = {
-                    .state = GestureState::End,
-                    .x = lerp(event.x, _driverWidth, _outputWidth),
-                    .y = lerp(event.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0
-                };  
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(swipe);
-                
+        case(state::WaitingDoubleTap): {
+            if(ev.type == TouchEvent::Type::Move) {
+                //double tap drag...
+                _doubleTapDeadline.stop();
+                emitStart(Gestures::DoubleTapSwipe, ev.x, ev.y);
+                _state = state::DoubleTapSwipeOngoing;
+            } else if(ev.type == TouchEvent::Type::End) {
+                emitStart(Gestures::DoubleTap, ev.x, ev.y);
                 reset();
             }
         } break;
-        case(Hold): {
-            //do nothing
-            if(event.id != _startEvent.id) {
-                if(_gestureToLost.active() && _gestureToLost.expired(now))
-                    reset();
+        case(state::SwipeOngoing):
+        case(state::DragOngoing): 
+        case(state::HoldOngoing): 
+        case(state::DoubleTapSwipeOngoing): {
+            //can we get here with ev.id != _startEvent.id???
+            Gestures g;
+            if(_state == state::SwipeOngoing) g = Gestures::Swipe;
+            else if(_state == state::DragOngoing) g = Gestures::Drag;
+            else if(_state == state::HoldOngoing) g = Gestures::Hold;
+            else if(_state == state::DoubleTapSwipeOngoing) g = Gestures::DoubleTapSwipe;
+
+            if(ev.type == TouchEvent::Type::Move) {
+                emitMove(g, ev.x, ev.y, _lastEvent.x - ev.x, _lastEvent.y - ev.y);
+            } else if(ev.type == TouchEvent::Type::End) {
+                // emitEnd(g, ev.x, ev.y, _lastEvent.x - ev.x, _lastEvent.y - ev.y); -> end at reset()
+                reset();
             }
         } break;
-        case(HoldOngoing): {
-            if(event.id != _startEvent.id) {
-                if(_gestureToLost.active() && _gestureToLost.expired(now))
-                    reset();
-            }
-
-            if(event.type == TouchEvent::Type::Move) {
-                int dx = lerp(event.x, _driverWidth, _outputWidth) - lerp(_lastEvent.x, _driverWidth, _outputWidth);
-                int dy = lerp(event.y, _driverHeight, _outputHeight) - lerp(_lastEvent.y, _driverHeight, _outputHeight);
-                
-                Gesture hold;
-                hold.type = Gestures::Hold;
-                hold.hold = {
-                    .state = GestureState::Move,
-                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                    .dx = dx,
-                    .dy = dy,
-                };
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(hold);
-            }
+        default: {
+            std::cerr << "smth wrong" << std::endl;
+            reset();
         } break;
     }
-    _lastEvent = event;
-    if(_eventsHistory.size() >= _maxHistoryLength) {
-        _eventsHistory.pop_front();
-    }
-    _eventsHistory.push_back(event);
-
+    _lastEvent = ev;
+    _lastEventTime = now;
 }
 
-void OneFingerFSM::resetOrProcess() {
-    TimePoint now = std::chrono::steady_clock::now();
-#if DEBUG_PRINT == 1
-    if(_idleActive || _state != state::Idle)  printState(_state, false);
-#endif
+void OneFingerFSM::tick(const TimePoint &now) {
+    // printState(_state, false);
     switch(_state) {
-        case(Idle): {
-            //do nothing
-            if(_idleActive) {
-                if(std::chrono::duration_cast<std::chrono::milliseconds>(now - _idleToStroke) > idleThreshold) {
-                    _recognizer._state = GestureRecognizer::RecognizerState::OneFingerOngoing;
-
-                    _state = Stroke;
-
-                    Gesture t;
-                    t.type = Gestures::TouchDown;
-                    t.touchDown = {
-                        .x = lerp(_lastEvent.x, _driverWidth, _outputWidth),
-                        .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                        .touchId = _lastEvent.id
-                    };
-                    _gestureToLost.start(_cfg.gestureToLost, now);
-                    _recognizer.pushGesture(t);
-                }
+        case(state::Idle): break;
+        case(state::Stroke): {
+            if(_holdDeadline.active() && _holdDeadline.expired(now)) {
+                //hold action
+                _state = state::HoldOngoing;
+                emitStart(Gestures::Hold, _lastEvent.x, _lastEvent.y);
+                _holdDeadline.stop();
             }
         } break;
-        case(Stroke): {
-                if(_lastEvent.type == TouchEvent::Type::Begin) {
-                    if(_holdTimer.active() && _holdTimer.expired(now)) {
-                        _state = Hold;
-                    }
-                } else if(_lastEvent.type == TouchEvent::Type::End) {
-                    if(_tapTimer.active() && _tapTimer.expired(now)) { //must be expired
-                        Gesture tap;
-                        tap.type = Gestures::Tap;
-                        tap.tap = {
-                            .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
-                        };
-                        _recognizer.pushGesture(tap);
-                        reset();
-                    }
-                }
-        } break;
-        case(DragOrHold): {
-            // ???
-            //the fakeSDL driver fails here due to too fast updates, dunno how it will affect real driver
-            // reset(); //TODO:need some time-to-lost timer here??
-        } break;
-        case(DragOngoing): {
-            if(_lastEvent.type == TouchEvent::Type::End) {
-                Gesture drag;
-                drag.type = Gestures::Drag;
-                drag.drag = {
-                    .state = GestureState::End,
-                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0
-                };
-                _recognizer.pushGesture(drag);
-
-                reset();
-            }
-        } break;
-        case(DoubleTapPossible): {
-            if(_lastEvent.type == TouchEvent::Type::End) {
-                if(_doubleTapTimer.active() && _doubleTapTimer.expired(now)) {
-                    Gesture dtap;
-                    dtap.type = Gestures::DoubleTap;
-                    dtap.doubleTap = {
-                        .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                        .y = lerp(_lastEvent.y, _driverHeight, _outputHeight)
-                    };
-                    _recognizer.pushGesture(dtap);
-                    
+        case(state::WaitingTap): {
+            if(_lastEvent.id == _startEvent.id) {
+                if(_tapDeadline.active() && _tapDeadline.expired(now)) {
+                    emitStart(Gestures::Tap, _lastEvent.x, _lastEvent.y);
                     reset();
                 }
             }
         } break;
-        case(DoubleTapSwipeOngoing): {
-            if(_lastEvent.type == TouchEvent::Type::End) {
-                Gesture swipe;
-                swipe.type = Gestures::DoubleTapSwipe;
-                swipe.dtSwipe = {
-                    .state = GestureState::End,
-                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0
-                };
-                _recognizer.pushGesture(swipe);
-                
-                reset();
-            }
+        case(state::WaitingDoubleTap): {
+            //can add drag or smth??
+            // if(_lastEvent.id != _startEvent.id) {
+            //     if(_doubleTapDeadline.active() && _doubleTapDeadline.expired(now)) {
+            //         emitStart(Gestures::DoubleTap, _lastEvent.x, _lastEvent.y);
+            //         reset();
+            //     }
+            // }
         } break;
-        case(DoubleTapCircularOngoing): {
-            if(_lastEvent.type == TouchEvent::Type::End) {
-                Gesture circ;
-                circ.type = Gestures::DoubleTapCircular;
-                circ.dtCircular = {
-                    .state = GestureState::End,
-                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0,
-                    .angle = 0.f,
-                    .deltaAngle = 0.f,
-                    .radius = 0.f,
-                    .speed = 0.f
-                };
-                _recognizer.pushGesture(circ);
-                
-                reset();
-            }
+        case(state::SwipeOngoing):
+        case(state::DragOngoing): 
+        case(state::HoldOngoing): 
+        case(state::DoubleTapSwipeOngoing): {
+            // std::cerr << "Shouldn't be here?" << std::endl;
+            // reset();
         } break;
-        case(SwipeOngoing): {
-            if(_lastEvent.type == TouchEvent::Type::End) {
-                Gesture swipe;
-                swipe.type = Gestures::Swipe;
-                swipe.swipe = {
-                    .state = GestureState::End,
-                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0
-                };
-                _recognizer.pushGesture(swipe);
-
-                reset();
-            }
-        } break;
-        case(Hold): {
-            if(_lastEvent.id != _startEvent.id) {
-                reset();
-            }
-
-            if(_lastEvent.type == TouchEvent::Type::Begin) {
-                Gesture hold;
-                hold.type = Gestures::Hold;
-                hold.hold = {
-                    .state = GestureState::Start,
-                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0,
-                };
-                _recognizer.pushGesture(hold);
-                _state = HoldOngoing;
-            }
-        } break;
-        case(HoldOngoing): {
-            if(_lastEvent.id != _startEvent.id) {
-                reset();
-            }
-
-            if(_lastEvent.type == TouchEvent::Type::End) {
-                Gesture hold;
-                hold.type = Gestures::Hold;
-                hold.hold = {
-                    .state = GestureState::End,
-                    .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-                    .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-                    .dx = 0,
-                    .dy = 0,
-                };
-                _recognizer.pushGesture(hold);
-                reset();
-            }
+        default: {
+            std::cerr << "smth wrong" << std::endl;
+            reset();
         } break;
     }
 }
+
 
 void OneFingerFSM::reset() {
-#if DEBUG_PRINT == 1
-    std::cout << "[OFS] reset" << std::endl;
-#endif
-
-    _doubleTapHelper = Undetected;
-    _predictions = 0;
-    _tapTimer.stop();
-    _doubleTapTimer.stop();
-    _dragOrHoldTimer.stop();
-    _holdTimer.stop();
-    _gestureToLost.stop();
-    if(_state != Idle) {
-#if DEBUG_PRINT == 1
-        std::cout << "[OFS] ------- tu -------" << std::endl;
-#endif
-        Gesture touch;
-        touch.type = Gestures::TouchUp;
-        touch.touchUp = {
-            .x = lerp(_lastEvent.x, _driverWidth, _outputWidth), 
-            .y = lerp(_lastEvent.y, _driverHeight, _outputHeight),
-            .touchId = _lastEvent.id
-        };
-        _recognizer.pushGesture(touch);
+    // std::cout << "Reset state "; printState(_state, false);
+    _holdDeadline.stop();
+    _doubleTapDeadline.stop();
+    if(_state == state::SwipeOngoing ||
+        _state == state::DragOngoing ||
+        _state == state::HoldOngoing ||
+        _state == state::DoubleTapSwipeOngoing)
+    {
+        Gestures g;
+        if(_state == state::SwipeOngoing) g = Gestures::Swipe;
+        else if(_state == state::DragOngoing) g = Gestures::Drag;
+        else if(_state == state::HoldOngoing) g = Gestures::Hold;
+        else if(_state == state::DoubleTapSwipeOngoing) g = Gestures::DoubleTapSwipe;
+        emitEnd(g, _lastEvent.x, _lastEvent.y, 0, 0);
     }
-    _state = Idle;
-    _idleActive = false;
+    _state = state::Idle;
+}
 
-    _recognizer.reset();
+inline void OneFingerFSM::emitStart(Gestures g, int x, int y) {
+    Gesture ret;
+    const int cx = lerp(x, _driverWidth, _outputWidth);
+    const int cy = lerp(y, _driverWidth, _outputWidth);
+    switch(g) {
+        case(Gestures::Tap): {
+            ret.type = Gestures::Tap; 
+            ret.tap.x = cx;
+            ret.tap.y = cy;
+        } break;
+        case(Gestures::Hold): {
+            ret.type = Gestures::Hold;
+            ret.hold.state = GestureState::Start;
+            ret.hold.x = cx;
+            ret.hold.y = cy;
+            ret.hold.dx = 0;
+            ret.hold.dy = 0;
+        } break;
+        case(Gestures::Swipe): {
+            ret.type = Gestures::Swipe;
+            ret.swipe.state = GestureState::Start;
+            ret.swipe.x = cx;
+            ret.swipe.y = cy;
+            ret.swipe.dx = 0;
+            ret.swipe.dy = 0;
+        } break;
+        case(Gestures::Drag): {
+            ret.type = Gestures::Drag;
+            ret.drag.state = GestureState::Start;
+            ret.drag.x = cx;
+            ret.drag.y = cy;
+            ret.drag.dx = 0;
+            ret.drag.dy = 0;
+        } break;
+        case(Gestures::DoubleTap): {
+            ret.type = Gestures::DoubleTap; 
+            ret.doubleTap.x = cx;
+            ret.doubleTap.y = cy;
+        } break;
+        case(Gestures::DoubleTapSwipe): {
+            ret.type = Gestures::DoubleTapSwipe;
+            ret.dtSwipe.state = GestureState::Start;
+            ret.dtSwipe.x = cx;
+            ret.dtSwipe.y = cy;
+            ret.dtSwipe.dx = 0;
+            ret.dtSwipe.dy = 0;
+        } break;
+        default: {
+            std::string text = gestureToText(g);
+            std::cerr << "Gesture " << text << " unsupported by OFS" << std::endl;
+            return;
+        } break;
+    }
+    _recognizer.pushGesture(ret);
+}
+inline void OneFingerFSM::emitMove(Gestures g, int x, int y, int dx, int dy) {
+    Gesture ret;
+    const int cx = lerp(x, _driverWidth, _outputWidth);
+    const int cy = lerp(y, _driverWidth, _outputWidth);
+    const int cdx = lerp(dx, _driverWidth, _outputWidth);
+    const int cdy = lerp(dy, _driverWidth, _outputWidth);
+    switch(g) {
+        case(Gestures::Hold): {
+            ret.type = Gestures::Hold;
+            ret.hold.state = GestureState::Move;
+            ret.hold.x = cx;
+            ret.hold.y = cy;
+            ret.hold.dx = cdx;
+            ret.hold.dy = cdy;
+        } break;
+        case(Gestures::Swipe): {
+            ret.type = Gestures::Swipe;
+            ret.swipe.state = GestureState::Move;
+            ret.swipe.x = cx;
+            ret.swipe.y = cy;
+            ret.swipe.dx = cdx;
+            ret.swipe.dy = cdy;
+        } break;
+        case(Gestures::Drag): {
+            ret.type = Gestures::Drag;
+            ret.drag.state = GestureState::Move;
+            ret.drag.x = cx;
+            ret.drag.y = cy;
+            ret.drag.dx = cdx;
+            ret.drag.dy = cdy;
+        } break;
+        case(Gestures::DoubleTapSwipe): {
+            ret.type = Gestures::DoubleTapSwipe;
+            ret.dtSwipe.state = GestureState::Move;
+            ret.dtSwipe.x = cx;
+            ret.dtSwipe.y = cy;
+            ret.dtSwipe.dx = cdx;
+            ret.dtSwipe.dy = cdy;
+        } break;
+        default: {
+            std::string text = gestureToText(g);
+            std::cerr << "Gesture " << text << " unsupported by OFS or can't produce move event" << std::endl;
+            return;
+        } break;
+    }
+    _recognizer.pushGesture(ret);
+}
+
+inline void OneFingerFSM::emitEnd(Gestures g, int x, int y, int dx, int dy) {
+    Gesture ret;
+    const int cx = lerp(x, _driverWidth, _outputWidth);
+    const int cy = lerp(y, _driverWidth, _outputWidth);
+    const int cdx = lerp(dx, _driverWidth, _outputWidth);
+    const int cdy = lerp(dy, _driverWidth, _outputWidth);
+    switch(g) {
+        case(Gestures::Hold): {
+            ret.type = Gestures::Hold;
+            ret.hold.state = GestureState::End;
+            ret.hold.x = cx;
+            ret.hold.y = cy;
+            ret.hold.dx = cdx;
+            ret.hold.dy = cdy;
+        } break;
+        case(Gestures::Swipe): {
+            ret.type = Gestures::Swipe;
+            ret.swipe.state = GestureState::End;
+            ret.swipe.x = cx;
+            ret.swipe.y = cy;
+            ret.swipe.dx = cdx;
+            ret.swipe.dy = cdy;
+        } break;
+        case(Gestures::Drag): {
+            ret.type = Gestures::Drag;
+            ret.drag.state = GestureState::End;
+            ret.drag.x = cx;
+            ret.drag.y = cy;
+            ret.drag.dx = cdx;
+            ret.drag.dy = cdy;
+        } break;
+        case(Gestures::DoubleTapSwipe): {
+            ret.type = Gestures::DoubleTapSwipe;
+            ret.dtSwipe.state = GestureState::End;
+            ret.dtSwipe.x = cx;
+            ret.dtSwipe.y = cy;
+            ret.dtSwipe.dx = cdx;
+            ret.dtSwipe.dy = cdy;
+        } break;
+        default: {
+            std::string text = gestureToText(g);
+            std::cerr << "Gesture " << text << " unsupported by OFS or can't produce move event" << std::endl;
+            return;
+        } break;
+    }
+    _recognizer.pushGesture(ret);
 }
 
 void OneFingerFSM::printState(state state, bool proc) {
     std::string text = proc ? "[OFS proc] " : "[OFS rest] ";
     switch(state) {
-        case(Idle): { 
-            if(!_idleActive) text.append("Idle NA"); 
-            else text.append("Idle A"); 
-            // if(_idleActive) text.append("Idle A");
-        } break;
+        case(Idle): text.append("Idle"); break;
         case(Stroke): text.append("Stroke"); break;
-        case(DragOrHold): text.append("DragOrHold"); break;
         case(DragOngoing): text.append("DragOngoing"); break;
-        case(DoubleTapPossible): text.append("DoubleTapPossible"); break;
+        case(WaitingTap): text.append("WaitingTap"); break;
+        case(WaitingDoubleTap): text.append("WaitingDoubleTap"); break;
         case(DoubleTapSwipeOngoing): text.append("DoubleTapSwipeOngoing"); break;
-        case(DoubleTapCircularOngoing): text.append("DoubleTapCircularOngoing"); break;
         case(SwipeOngoing): text.append("SwipeOngoing"); break;
-        case(Hold): text.append("Hold"); break;
         case(HoldOngoing): text.append("HoldOngoing"); break;
     }
     std::cout << text << std::endl;

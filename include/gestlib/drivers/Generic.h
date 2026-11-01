@@ -30,6 +30,28 @@ struct GenericDriverConfig {
     float speedDiv = 20.0f;         //
 };
 
+struct DeviceDesc {
+    std::string path;
+    std::string device;
+    std::string vendorId;
+    std::string productId;
+    std::string bustype;
+    std::string name;
+    std::string driver;
+    std::string driverfw;
+
+    int mtslots;
+    int minWidth;
+    int maxWidth;
+    int widthResolution;
+    int minHeight;
+    int maxHeight;
+    int heightResolution;
+
+
+    void print();
+};
+
 class GenericDriver : public TouchDriver {
     public:
     GenericDriver(const GenericDriverConfig);

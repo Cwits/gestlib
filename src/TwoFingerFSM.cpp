@@ -14,15 +14,10 @@
 
 namespace GestLib {
 
-static const auto idleThreshold = std::chrono::milliseconds(10);
-
 TwoFingerFSM::TwoFingerFSM(GestureRecognizer &rec, TwoFingerFSMConfig cfg) :
     _cfg(cfg),
     _recognizer(rec) 
 {
-    _state = state::Idle;
-    _idleActive = false;
-
 }
 
 TwoFingerFSM::~TwoFingerFSM() {
@@ -41,368 +36,292 @@ void TwoFingerFSM::outputResolution(int w, int h) {
     _outputHeight = h;
 }
 
-/*
-    ugh, things getting difficult here...
-    ideally - must track both fingers changing state and drop event only if both fingers ended
-    here will be bunch of permutations - e.g. one of fingers disappeared and appeared again, than 
-    need to decide what to do either resotre the gesture or drop and...?
-    how to check for ID's?
+std::optional<TimePoint> TwoFingerFSM::nextDeadline() { 
+    if(_state == State::TapWait) return _tapDeadline;
+    return std::nullopt;
+}
 
-    i'd say that for now let's assume that we receiving only stable touches with consistent ID's and, 
-    when one disappeares than gesture ended
+void TwoFingerFSM::begin(const std::pair<TouchEvent, TouchEvent> &a, const std::pair<TouchEvent, TouchEvent> &b, const TimePoint &now) {
+    const int cx = (a.first.x + b.first.x) / 2;
+    const int cy = (a.first.y + b.first.y) / 2;
 
-*/
-void TwoFingerFSM::process(std::vector<TouchEvent> & touches) {
-    TouchEvent *te1, *te2;
-    if(touches.size() == 1) {
-        if(_lastTouches.first.id == touches[0].id) {
-            te1 = &touches[0];
-            te2 = &_lastTouches.second;
-        } else if(_lastTouches.second.id == touches[0].id) {
-            te1 = &_lastTouches.first;
-            te2 = &touches[0];
-        } else {
-            std::cout << "Lost both touches" << std::endl;
-            reset();
-	    return;
-            //idk yet what to do... i guess reset?
-        }
-    } else if(touches.size() == 2) {
-        te1 = &touches[0];
-        te2 = &touches[1];
+    bool secondTap = false;
+    if(_state == State::TapWait) {
+        secondTap = now < _tapDeadline && distance(float(cx), float(cy), float(_tapX), float(_tapY)) <= _cfg.doubleTapRadius;
+        if(!secondTap) emitTap();
+    } else if(_state != State::Idle) {
+        reset();
     }
-    TouchEvent &ev1 = *te1;
-    TouchEvent &ev2 = *te2;
-    TimePoint now = std::chrono::steady_clock::now();
 
-#if DEBUG_PRINT == 1
-    printstate(true); 
-#endif
+    const std::pair<TouchEvent, TouchEvent>* t[2] = {&a, &b};
+    if(t[0]->second.id > t[1]->second.id) std::swap(t[0], t[1]);
+    for(int i = 0; i < 2; ++i) {
+        _f[i] = {
+            t[i]->second.id, 
+            t[i]->first.x, 
+            t[i]->first.y,
+            t[i]->second.x,  
+            t[i]->second.y,
+            t[i]->first.x, 
+            t[i]->first.y
+        };
+    }
+    _tapX = cx; 
+    _tapY = cy;
+    _downTime = now;
+    _state = secondTap ? State::DoubleTapPressed : State::Pressed;
+}
+
+void TwoFingerFSM::onEvent(const TouchEvent &e, const TimePoint &now) {
+    Finger* f = nullptr;
+    for(auto& c : _f) { 
+        if(c.id == e.id) 
+            f = &c; 
+    }
+    
+    if(!f || _state == State::Idle || _state == State::TapWait) return;
+
+    f->x = e.x;
+    f->y = e.y;
+    if(e.type != TouchEvent::Type::End) return; //handle move in endFrame()
 
     switch(_state) {
-        case(state::Idle): {
-            if(ev1.type != TouchEvent::Type::End) {
-                if(!_idleActive) {
-                    _startTouches = std::make_pair(touches[0], touches[1]);
-                    _tapTimer.start(300, now);
-
-                    _idleToStroke = now;
-                    _idleActive = true;
+        case(State::Pressed): {
+            if(now - _downTime <= std::chrono::milliseconds(_cfg.tapTimeout)) {
+                if(_cfg.doubleTapEnabled) {
+                    _tapDeadline = now + std::chrono::milliseconds(_cfg.doubleTapTimeout);
+                    _state = State::TapWait;
                 } else {
-                    if(std::chrono::duration_cast<std::chrono::milliseconds>(now - _idleToStroke) >= idleThreshold) {
-                        _recognizer._state = GestureRecognizer::RecognizerState::TwoFingerOngoing;
-
-                        _state = state::Stroke;
-
-                        int dx = (_lastTouches.first.x + _lastTouches.second.x) / 2;
-                        int dy = (_lastTouches.first.y + _lastTouches.second.y) / 2;
-#if DEBUG_PRINT == 1
-                        std::cout << "[TFS] ------- td -------" << std::endl;
-#endif
-                        Gesture t;
-                        t.type = Gestures::TouchDown;
-                        t.touchDown = {
-                            .x = lerp(dx, _driverWidth, _outputWidth),
-                            .y = lerp(dy, _driverHeight, _outputHeight),
-                            .touchId = -1
-                        };
-
-                        _gestureToLost.start(_cfg.gestureToLost, now);
-                        _recognizer.pushGesture(t);
-                    }
+                    emitTap();
+                    _state = State::Idle;
                 }
+            } else {
+                _state = State::Idle;
             }
         } break;
-        case(state::Stroke): {
-            // std::cerr << "Two finger stroke" << std::endl;
-            if(ev1.type != TouchEvent::Type::End && ev1.id == _startTouches.first.id) {
-                _tapTimer.stop();
-
-                if(_eventHistory.size() < 3) { break; } //need some history
-
-                float dist = 0.0f;
-                float prevDist = 0.0f;
-                float dx = 0.0f;
-                float dy = 0.0f;
-                int lessThanMin = 0;
-                bool skipIteration = false;
-                const float minValue = 16.0f;
-
-                for(int i=3; i>0; --i) {
-                    Event &ev = _eventHistory[_eventHistory.size()-i];
-                    if(ev.first.id != ev1.id) { skipIteration = true; break; }
-                    
-                    dx = std::abs(ev.first.x - ev.second.x);
-                    dy = std::abs(ev.first.y - ev.second.y);
-                    dist = std::hypot(dx, dy);
-                    if(std::abs(dist-prevDist) < minValue) lessThanMin++;
-
-                    prevDist = dist;
-                }
-                if(skipIteration) break;
-
-                dx = std::abs(ev1.x - ev2.x);
-                dy = std::abs(ev1.y - ev2.y);
-                
-                dist = std::hypot(dx, dy);
-                if(std::abs(dist-prevDist) < minValue) lessThanMin++;
-                    
-                // Gestures gest = changing ? Gestures::Zoom : Gestures::Swipe;
-                Gestures gest = lessThanMin >= 2 ? Gestures::TwoFingerSwipe : Gestures::Zoom;
-                
-                if(gest == Gestures::TwoFingerSwipe) {
-                    float dist1 = distance(ev1, _startTouches.first);
-                    float dist2 = distance(ev2, _startTouches.second);
-                    
-                    //can be swipe, can be zoom... need to check history and track the distance change directions
-                    //if points 
-                    if(dist1 >= 2 && dist2 >= 2) {
-                        Gesture swipe;
-                    
-                        swipe.type = Gestures::TwoFingerSwipe;
-                        swipe.tfSwipe = {
-                            .state = GestureState::Start,
-                            // .x = lerp(dx1, _driverWidth, _outputWidth),
-                            // .y = lerp(dy1, _driverHeight, _outputHeight),
-                            
-                            .x = lerp(5, _driverWidth, _outputWidth),
-                            .y = lerp(5, _driverHeight, _outputHeight),
-                            .dx = 0,
-                            .dy = 0 
-                        };
-                        _gestureToLost.update(now);
-                        _recognizer.pushGesture(swipe);
-                        _state = state::SwipeOngoing;
-                    }    
-                } else if(gest == Gestures::Zoom) {
-                    float dist1 = distance(ev1, _startTouches.first);
-                    float dist2 = distance(ev2, _startTouches.second);
-                    
-                    //can be swipe, can be zoom... need to check history and track the distance change directions
-                    //if points 
-                    if(dist1 >= 2 && dist2 >= 2) {
-                        Gesture zoom;
-                    
-                        zoom.type = Gestures::Zoom;
-                        zoom.zoom = {
-                            .state = GestureState::Start,
-                            .xCenter = lerp((ev1.x + ev2.x)/2, _driverWidth, _outputWidth),
-                            .yCenter = lerp((ev1.y + ev2.y)/2, _driverHeight, _outputHeight),
-                            .horDif = 1.0f,
-                            .horAbs = 1.0f,
-                            .verDif = 1.0f,
-                            .verAbs = 1.0f
-                        };
-                        _gestureToLost.update(now);
-                        _recognizer.pushGesture(zoom);
-                        _state = state::ZoomOngoing;
-                    }    
-                }
-                    
-            } else if(ev1.type == TouchEvent::Type::Begin && ev1.id != _startTouches.first.id) {
-                //possible double tap
-            } 
+        case(State::DoubleTapPressed): {
+            if(now - _downTime <= std::chrono::milliseconds(_cfg.tapTimeout)) 
+                emitDoubleTap();
+            _state = State::Idle;
         } break;
-        case(state::SwipeOngoing): {
-            GestureState toSend;
-            if(ev1.type == TouchEvent::Type::Move) {
-                toSend = GestureState::Move;
-            } else if(ev1.type == TouchEvent::Type::End) {
-                toSend = GestureState::End;
-            }
-            
-            float dist1 = distance(ev1, _lastTouches.first);
-            float dist2 = distance(ev2, _lastTouches.second);
-
-            if(dist1 >= 5 || dist2 >= 5) {
-                int dx1 = 
-                lerp(ev1.x, _driverWidth, _outputWidth) -
-                lerp(_lastTouches.first.x, _driverHeight, _outputHeight);
-                int dy1 = 
-                lerp(ev1.y, _driverWidth, _outputWidth) - 
-                lerp(_lastTouches.first.y, _driverHeight, _outputHeight);
-                
-                Gesture swipe;
-                swipe.type = Gestures::TwoFingerSwipe;
-                swipe.tfSwipe = {
-                    .state = toSend,
-                    .x = lerp(ev1.x, _driverWidth, _outputWidth),
-                    .y = lerp(ev1.y, _driverHeight, _outputHeight),
-                    .dx = dx1,
-                    .dy = dy1 
-                };
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(swipe);
-
-                if(ev1.type == TouchEvent::Type::End) reset();
-            }
+        case(State::Swipe): 
+        case(State::Zoom): 
+        case(State::Rotate): {
+            finish();
         } break;
-        case(state::ZoomOngoing): {
-            GestureState toSend;
-            if(ev1.type == TouchEvent::Type::Move) {
-                toSend = GestureState::Move;
-            } else if(ev1.type == TouchEvent::Type::End) {
-                toSend = GestureState::End;
-            }
-            
-            float dist1 = distance(ev1, _lastTouches.first);
-            float dist2 = distance(ev2, _lastTouches.second);
-
-            if(std::abs(dist1) >= 5 || std::abs(dist2) >= 5) {
-                float prevDx = _lastTouches.second.x - _lastTouches.first.x;
-                float currDx = ev2.x - ev1.x;                
-                float prevDy = _lastTouches.second.y - _lastTouches.first.y;
-                float currDy = ev2.y - ev1.y;
-                
-                float dHor = std::abs(prevDx) > 1e-5f
-                    ? currDx / prevDx
-                    : 1.0f;
-
-                float dVer = std::abs(prevDy) > 1e-5f
-                    ? currDy / prevDy
-                    : 1.0f;
-
-                prevDx = _startTouches.second.x - _startTouches.first.x;
-                prevDy = _startTouches.second.y - _startTouches.first.y;
-
-                float aHor = std::abs(prevDx) > 1e-5f ? currDx / prevDx : 0.0f;
-                float aVer = std::abs(prevDy) > 1e-5f ? currDy / prevDy : 0.0f;
-
-                Gesture zoom;
-                zoom.type = Gestures::Zoom;
-                zoom.zoom = {
-                    .state = toSend,    
-                    .xCenter = lerp((ev1.x + ev2.x)/2, _driverWidth, _outputWidth),
-                    .yCenter = lerp((ev1.y + ev2.y)/2, _driverHeight, _outputHeight),
-                    .horDif = dHor, 
-                    .horAbs = aHor,   //abs means if zoom stayed at _startEvent than res would be 1.0f
-                    .verDif = dVer, 
-                    .verAbs = aVer    //abs means if zoom stayed at _startEvent than res would be 1.0f
-                };
-                _gestureToLost.update(now);
-                _recognizer.pushGesture(zoom);
-
-                if(ev1.type == TouchEvent::Type::End) reset();
-            }
-        } break;
-    }
-
-    _lastTouches = std::make_pair(ev1, ev2);
-    _eventHistory.push_back(_lastTouches);
-    if(_eventHistory.size() >= 35) {
-        _eventHistory.pop_front();
+        default:
+            _state = State::Idle;
+        break;
     }
 }
 
-void TwoFingerFSM::resetOrProcess() {
-    auto now = std::chrono::steady_clock::now();    
-#if DEBUG_PRINT == 1
-    if(_idleActive || _state != state::Idle) printstate(false);
-#endif
-
+void TwoFingerFSM::endFrame() {
     switch(_state) {
-        case(state::Idle): {
-            if(_idleActive) {
-                if(std::chrono::duration_cast<std::chrono::milliseconds>(now - _idleToStroke) >= idleThreshold) {
-                    _recognizer._state = GestureRecognizer::RecognizerState::TwoFingerOngoing;
-
-                    _state = state::Stroke;
-
-                    int dx = (_lastTouches.first.x + _lastTouches.second.x) / 2;
-                    int dy = (_lastTouches.first.y + _lastTouches.second.y) / 2;
-
-#if DEBUG_PRINT == 1
-                    std::cerr << "[TFS] ----- td ------" << std::endl;
-#endif
-                    Gesture t;
-                    t.type = Gestures::TouchDown;
-                    t.touchDown = {
-                        .x = lerp(dx, _driverWidth, _outputWidth),
-                        .y = lerp(dy, _driverHeight, _outputHeight),
-                        .touchId = -1
-                    };
-                    _gestureToLost.start(_cfg.gestureToLost, now);
-                    _recognizer.pushGesture(t);
-                }
-            }
+        case(State::Pressed): {
+            tryClassify();
         } break;
-        case(state::Stroke): {
-            if(_lastTouches.first.type == TouchEvent::Type::End) {
-                if(_tapTimer.active() && _tapTimer.expired(now)) {
-                    //tap?
-                    
-                    int dx = std::abs(_lastTouches.first.x - _lastTouches.second.x);
-                    int dy = std::abs(_lastTouches.first.y - _lastTouches.second.y);
-
-                    Gesture t;
-                    t.type = Gestures::TwoFingerTap;
-                    t.tfTap = {
-                        .x = lerp(dx, _driverWidth, _outputWidth),
-                        .y = lerp(dy, _driverHeight, _outputHeight)
-                    };
-                    _recognizer.pushGesture(t);
-
-                    reset();
-                }
-            }
+        case(State::Swipe): 
+        case(State::Zoom): 
+        case(State::Rotate): {
+            if (fingersMoved(_cfg.moveStep)) 
+                emit(GestureState::Move);
         } break;
-        case(state::SwipeOngoing): {
-            if(_gestureToLost.active() && _gestureToLost.expired(now))
-                reset();
+        case(State::DoubleTapPressed): {
+            const Metrics m = measure();
+            if(std::max(m.travel, m.rel) >= _cfg.decideDistance) 
+                _state = State::Swallow;
         } break;
-        case(state::ZoomOngoing): {
-            //... smth
-            if(_gestureToLost.active() && _gestureToLost.expired(now))
-                reset();
-        } break;
+        default: break;
     }
+}
+
+void TwoFingerFSM::tick(const TimePoint &now) {
+   if (_state == State::TapWait && now >= _tapDeadline) {
+        emitTap();
+        _state = State::Idle;
+    }
+}
+//   travel     -> Swipe
+//   radial / 2  -> Zoom
+//   tangential *len/2 -> Rotate
+TwoFingerFSM::Metrics TwoFingerFSM::measure() const {
+    const Finger &a = _f[0], &b = _f[1];
+    const float cx = float((a.x - a.sx) + (b.x - b.sx)) / 2.f;
+    const float cy = float((a.y - a.sy) + (b.y - b.sy)) / 2.f;
+    const float v0x = float(b.sx - a.sx);
+    const float v0y = float(b.sy - a.sy);
+    const float dvx = float(b.x - a.x) - v0x; 
+    const float dvy = float(b.y - a.y) - v0y;
+    const float len0 = std::hypot(v0x, v0y);
+    const float ux = len0 > 1e-3f ? v0x / len0 : 1.f;
+    const float uy = len0 > 1e-3f ? v0y / len0 : 0.f;
+
+    Metrics m;
+    m.travel     = std::hypot(cx, cy);
+    m.rel        = std::hypot(dvx, dvy) / 2.f;
+    m.radial     = (dvx * ux + dvy * uy) / 2.f;
+    m.tangential = (ux * dvy - uy * dvx) / 2.f;
+    return m;
+}
+
+
+void TwoFingerFSM::tryClassify() {
+    const Metrics m = measure();
+    if(std::max(m.travel, m.rel) < _cfg.decideDistance) return;
+
+    State s;
+    if(m.travel > _cfg.swipeRatio * m.rel) {
+        s = State::Swipe;
+    } else if(_cfg.rotateEnabled && std::abs(m.tangential) > _cfg.rotateRatio * std::abs(m.radial)) {
+        s = State::Rotate;
+    } else {
+        s = State::Zoom;
+    }
+
+    if(s == State::Swipe && !_cfg.swipeEnabled) { 
+        _state = State::Swallow; 
+        return; 
+    }
+    
+    _state = s;
+
+    int cur[4] = {
+        _f[0].x, 
+        _f[0].y, 
+        _f[1].x,
+        _f[1].y
+    };
+    
+    for(auto& f : _f) { 
+        f.x = f.rx = f.sx; 
+        f.y = f.ry = f.sy; 
+    }
+
+    _lastAngle  = std::atan2(float(_f[1].y - _f[0].y), float(_f[1].x - _f[0].x));
+    _totalAngle = 0.f;
+    emit(GestureState::Start);
+    _f[0].x = cur[0]; 
+    _f[0].y = cur[1]; 
+    _f[1].x = cur[2]; 
+    _f[1].y = cur[3];
+    emit(GestureState::Move);
+}
+
+bool TwoFingerFSM::fingersMoved(int step) const {
+    for(const auto& f : _f) {
+        const int dx = f.x - f.rx;
+        const int dy = f.y - f.ry;
+        if((dx || dy) && dx * dx + dy * dy >= step * step) return true;
+    }
+    return false;
+}
+
+void TwoFingerFSM::emit(GestureState gs) {
+    const Finger &a = _f[0], &b = _f[1];
+    const int cx  = (a.x + b.x) / 2,   cy  = (a.y + b.y) / 2;
+    const int rcx = (a.rx + b.rx) / 2, rcy = (a.ry + b.ry) / 2;
+
+    int lcx = lerp(cx, _driverWidth, _outputWidth);
+    int lcy = lerp(cy, _driverWidth, _outputWidth);
+    Gesture g;
+    switch (_state) {
+        case(State::Swipe): {
+            g.type = Gestures::TwoFingerSwipe;
+            g.tfSwipe.state = gs;
+            g.tfSwipe.x = lcx;
+            g.tfSwipe.y = lcy;
+            g.tfSwipe.dx = lerp(cx, _driverWidth, _outputWidth) - 
+                            lerp(rcx, _driverWidth, _outputWidth);
+            g.tfSwipe.dy = lerp(cy, _driverWidth, _outputWidth) - 
+                            lerp(rcy, _driverWidth, _outputWidth);
+        } break;
+        case(State::Zoom): {
+            const float curDx   = std::abs(float(b.x - a.x)),   curDy   = std::abs(float(b.y - a.y));
+            const float prevDx  = std::abs(float(b.rx - a.rx)), prevDy  = std::abs(float(b.ry - a.ry));
+            const float startDx = std::abs(float(b.sx - a.sx)), startDy = std::abs(float(b.sy - a.sy));
+            g.type = Gestures::Zoom;
+            g.zoom.state = gs;
+            g.zoom.xCenter = lcx;
+            g.zoom.yCenter = lcy;
+            g.zoom.horDif = ratio(curDx, prevDx);
+            g.zoom.horAbs = ratio(curDx, startDx);
+            g.zoom.verDif = ratio(curDy, prevDy);
+            g.zoom.verAbs = ratio(curDy, startDy);
+        } break;
+        case(State::Rotate): {
+            const float ang   = std::atan2(float(b.y - a.y), float(b.x - a.x));
+            const float delta = normalizeAngle(ang - _lastAngle);
+            _lastAngle = ang;
+            _totalAngle += delta;
+            g.type = Gestures::Rotate;
+            g.rotate.state = gs;
+            g.rotate.xCenter = lcx;
+            g.rotate.yCenter = lcy;
+            g.rotate.angle = _totalAngle;
+            g.rotate.deltaAngle = delta;
+        } break;
+        default: 
+            return; 
+        break;
+    }
+    // _sink(g);
+    _recognizer.pushGesture(g);
+    for(auto& f : _f) { 
+        f.rx = f.x; 
+        f.ry = f.y; 
+    }
+}
+
+void TwoFingerFSM::finish() {
+    if (fingersMoved(0)) emit(GestureState::Move);
+    emit(GestureState::End);
+    _state = State::Idle;
+}
+
+void TwoFingerFSM::emitTap() {
+    Gesture g;
+    g.type = Gestures::TwoFingerTap;
+    g.tfTap.x = lerp(_tapX, _driverWidth, _outputWidth);
+    g.tfTap.y = lerp(_tapY, _driverWidth, _outputWidth);
+    _recognizer.pushGesture(g);
+}
+
+void TwoFingerFSM::emitDoubleTap() {
+    Gesture g;
+    g.type = Gestures::TwoFingerDoubleTap;
+    g.tfDoubleTap.x = lerp(_tapX, _driverWidth, _outputWidth);
+    g.tfDoubleTap.y = lerp(_tapY, _driverWidth, _outputWidth);
+    _recognizer.pushGesture(g);
 }
 
 void TwoFingerFSM::reset() {
-#if DEBUG_PRINT == 1
-    std::cout << "[TFS] reset" << std::endl;
-#endif
-
-    if(_state != state::Idle) {
-        int dx = (_lastTouches.first.x + _lastTouches.second.x) / 2;
-        int dy = (_lastTouches.first.y + _lastTouches.second.y) / 2;
-
-#if DEBUG_PRINT == 1        
-        std::cout << "[TFS] ------- tu -------" << std::endl;
-#endif
-        Gesture t;
-        t.type = Gestures::TouchUp;
-        t.touchUp = {
-            .x = lerp(dx, _driverWidth, _outputWidth),
-            .y = lerp(dy, _driverHeight, _outputHeight),
-            .touchId = -1
-        };
-        _recognizer.pushGesture(t);
+    switch(_state) {
+        case(State::Swipe): 
+        case(State::Zoom): 
+        case(State::Rotate): 
+            finish(); 
+        break;
+        default: break;
     }
-    _state = state::Idle;
-    _idleActive = false;
-    _gestureToLost.stop();
-    _tapTimer.stop();
-
-    _recognizer.reset();
+    _state = State::Idle;
 }
 
 void TwoFingerFSM::printstate(bool proc) {
     std::string text = proc ? "[TFS proc] " : "[TFS rest] ";
-    switch(_state) {
-        case(state::Idle): {
-            // if(_idleActive) text.append("Idle A");
-            _idleActive ? text.append("Idle A") : text.append("Idle NA"); 
-        } break;
-        case(state::Stroke): text.append("Stroke"); break;
-        case(state::Tap): text.append("Tap"); break;
-        case(state::DoubleTap): text.append("Double Tap"); break;
-        case(state::Swipe): text.append("Swipe"); break;
-        case(state::SwipeOngoing): text.append("SwipeOngoing"); break;
-        case(state::Zoom): text.append("Zoom"); break;
-        case(state::ZoomOngoing): text.append("ZoomOngoing"); break;
-        case(state::Rotate): text.append("Rotate"); break;
-    }
+    // switch(_state) {
+    //     case(State::Idle): {
+    //         // if(_idleActive) text.append("Idle A");
+    //         _idleActive ? text.append("Idle A") : text.append("Idle NA"); 
+    //     } break;
+    //     case(State::Stroke): text.append("Stroke"); break;
+    //     case(State::Tap): text.append("Tap"); break;
+    //     case(State::DoubleTap): text.append("Double Tap"); break;
+    //     case(State::Swipe): text.append("Swipe"); break;
+    //     case(State::SwipeOngoing): text.append("SwipeOngoing"); break;
+    //     case(State::Zoom): text.append("Zoom"); break;
+    //     case(State::ZoomOngoing): text.append("ZoomOngoing"); break;
+    //     case(State::Rotate): text.append("Rotate"); break;
+    // }
     std::cout << text << std::endl;
 }
 

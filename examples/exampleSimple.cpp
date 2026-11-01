@@ -100,14 +100,6 @@ void processGestures(const std::vector<Gesture> & gestures) {
                 else if(g.dtSwipe.state == GestureState::End)
                     std::cout << "it's a DoubleTapSwipe End!" << std::endl;
             break;
-            case(Gestures::DoubleTapCircular):
-                if(g.dtCircular.state == GestureState::Start)
-                    std::cout << "it's a DoubleTapCircular Start!" << std::endl;
-                else if(g.dtCircular.state == GestureState::Move)
-                    std::cout << "it's a DoubleTapCircular Move!" << std::endl;
-                else if(g.dtCircular.state == GestureState::End)
-                    std::cout << "it's a DoubleTapCircular End!" << std::endl;
-            break;
             case(Gestures::Zoom): 
                 std::cout << "it's a Zoom!" << std::endl;
             break;

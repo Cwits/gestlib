@@ -3,21 +3,25 @@
 
 #pragma once
 #include "defines.h"
+#include "Gestures.h"
 #include <vector>
 #include <deque>
 #include <chrono>
+#include <optional>
 
 namespace GestLib {
 
 class GestureRecognizer;
 
 struct OneFingerFSMConfig {
-    int tapTimeout          = 300;  //ms can do 200-250?
+    bool doubleTapEnabled   = true;
+    int tapTimeout          = 200;  //ms can do 200-250?
     int dragThreshold       = 200;  //ms
     int holdThreshold       = 800;  //ms
     int doubleTapTimeout    = 200;  //ms
     int maxHistoryLength    = 35;   //element count
     int gestureToLost       = 60;   //ms
+    int minMoveThreshold    = 2;    //in some... units... pixels?
 };
 
 class OneFingerFSM {
@@ -27,9 +31,13 @@ class OneFingerFSM {
     bool init(int driverWidth, int driverHeight);
     void outputResolution(int w, int h);
 
-    void process(std::vector<TouchEvent> & touches);
-    void resetOrProcess();
+    void onEvent(const TouchEvent &, const TimePoint &);
+    void tick(const TimePoint &);
     void reset();
+    
+    std::optional<TimePoint> nextDeadline(); 
+    bool busy() const { return _state != state::Idle; }
+    bool lockedOnGesture(const std::chrono::milliseconds, const TimePoint &);
 
     private:
     OneFingerFSMConfig _cfg;
@@ -38,52 +46,31 @@ class OneFingerFSM {
     int _outputWidth;
     int _outputHeight;
 
-    //cfg related
-    int _tapTimeout;
-    int _holdThreshold;
-    int _dragThreshold;
-    int _doubleTapTimeout;
-    int _maxHistoryLength;
-
     enum state {
         Idle,
         Stroke,
-        DragOrHold,
+        WaitingTap,
+        WaitingDoubleTap,
         DragOngoing,
-        DoubleTapPossible,
-        DoubleTapSwipeOngoing,
-        DoubleTapCircularOngoing,
         SwipeOngoing,
-        Hold,
-        HoldOngoing
+        HoldOngoing,
+        DoubleTapSwipeOngoing
     };
     state _state = Idle;
     TouchEvent _lastEvent;
     TouchEvent _startEvent;
 
+    TimePoint _startEventTime;
     TimePoint _lastEventTime; //if now - last event time < some threshold(like 800-1000ms) than recover last event?
 
-    enum gestureMove {
-        Undetected,
-        Linear,
-        Circular
-    };
-    
-    gestureMove _doubleTapHelper;
-    int _predictions;
-    std::deque<TouchEvent> _eventsHistory;
-
-    timer _tapTimer;
-    timer _doubleTapTimer;
-    timer _dragOrHoldTimer;
-    timer _holdTimer;
-    timer _gestureToLost;
-    
-    TimePoint _idleToStroke;
-    bool _idleActive;
+    inline void emitStart(Gestures s, int x, int y);
+    inline void emitMove(Gestures s, int x, int y, int dx, int dy);
+    inline void emitEnd(Gestures s, int x, int y, int dx, int dy);
+    timer _tapDeadline;
+    timer _doubleTapDeadline;
+    timer _holdDeadline;
 
     GestureRecognizer & _recognizer;
-
     void printState(state state, bool proc);
 };
 

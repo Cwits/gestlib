@@ -20,17 +20,20 @@ enum class Gestures {
     Swipe,          //+
     Drag,           //+
     DoubleTap,      //+
-    DoubleTapSwipe, //+
-    //Double Tap Circular To Be Removed!!!
-    DoubleTapCircular, //+ in code but not working - do i need this one?
+    DoubleTapSwipe, //+ //rename to drag
+    DoubleTapDrag,  //to add
+    DoubleTapHold,  //to add
     //two fingers
-    Zoom, //+
-    Rotate,
-    TwoFingerTap, //+
+    Zoom,           //+
+    Rotate,         //+
+    TwoFingerTap,   //+
+    TwofingerHold,  //to add
     TwoFingerDoubleTap,
     TwoFingerSwipe, //+
     //three fingers
     ThreeFingerTap,
+    ThreeFingerDoubleTap,
+    ThreeFingerHold,
     ThreeFingerSwipe
 };
 
@@ -82,18 +85,6 @@ struct DTSwipeGesture {
     int dy;
 };
 
-struct DTCircularGesture {
-    GestureState state;
-    int x;
-    int y;
-    int dx;
-    int dy;
-    float angle;
-    float deltaAngle;
-    float radius;
-    float speed;
-};
-
 struct TwoFingerTap {
     int x;
     int y;
@@ -124,8 +115,10 @@ struct ZoomGesture {
 
 struct RotateGesture {
     GestureState state;
-    int x;
-    int y;
+    int xCenter;
+    int yCenter;
+    float angle;
+    float deltaAngle;
 };
 
 struct TouchDownEvent {
@@ -151,7 +144,6 @@ struct Gesture {
         SwipeGesture swipe;
         DragGesture drag;
         DTSwipeGesture dtSwipe;
-        DTCircularGesture dtCircular;
         TwoFingerTap tfTap;
         TwoFingerDoubleTap tfDoubleTap;
         TwoFingerSwipe tfSwipe;
@@ -169,7 +161,8 @@ must be one finger only?
 */
 struct TouchCapture {
     virtual void onMove(const TouchEvent &touch) = 0;
-    virtual void onCancle() = 0;
+    virtual void onCancle(int touchId) = 0;
+    virtual int maxTouches() const { return 1; }
 
     private:
     int CapturedEventId = -1;
@@ -187,7 +180,6 @@ inline std::string gestureToText(const GestLib::Gestures &g) {
         case(GestLib::Gestures::Swipe): text = "Swipe"; break;
         case(GestLib::Gestures::DoubleTap): text = "Double Tap"; break;
         case(GestLib::Gestures::DoubleTapSwipe): text = "Double Tap Swipe"; break;
-        case(GestLib::Gestures::DoubleTapCircular): text = "Double Tap Circular"; break;
         case(GestLib::Gestures::Zoom): text = "Zoom"; break;
         case(GestLib::Gestures::Rotate): text = "Rotate"; break;
         case(GestLib::Gestures::TwoFingerTap): text = "Two Finger Tap"; break;

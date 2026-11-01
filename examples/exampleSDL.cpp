@@ -49,12 +49,12 @@ struct JoystickScene : public SceneBase {
     void handleGesture(const GestLib::Gesture &) override;
     void drawScene() override;
     
-    struct Joystick : public GestLib::TouchCapture {
-        void onMove(const GestLib::TouchEvent &touch) override;
-        void onCancle() override;
-    };
+    // struct Joystick : public GestLib::TouchCapture {
+    //     void onMove(const GestLib::TouchEvent &touch) override;
+    //     void onCancle() override;
+    // };
 
-    Joystick joystick;
+//    Joystick joystick;
     GestLib::GestureRecognizer *rec = nullptr;
 };
 
@@ -493,11 +493,11 @@ void JoystickScene::drawScene() {
 
 }
 
-void JoystickScene::Joystick::onMove(const GestLib::TouchEvent &touch) {
+// void JoystickScene::Joystick::onMove(const GestLib::TouchEvent &touch) {
     
-}
+// }
 
-void JoystickScene::Joystick::onCancle() {
+// void JoystickScene::Joystick::onCancle() {
     
-}
+// }
     
